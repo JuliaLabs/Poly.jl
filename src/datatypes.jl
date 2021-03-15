@@ -1,3 +1,4 @@
+export LoopKernel, Domain, Instruction
 
 """
 Represents a kernel

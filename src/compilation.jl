@@ -1,5 +1,6 @@
 using MacroTools
 import datatypes.jl
+export compile_native_julia
 
 """
 DEPENDENCIES FUNCTIONS
@@ -86,7 +87,7 @@ function construct_ast(kernel::LoopKernel)::AST
 
     ast = AST{:none, Vector{AST}[], Vector{AST}[]} # head node
     remaining_items = Vector{Union{Instruction, Domain}}[]
-    nodes = Dict{Union{Instruction, Domain}, AST}()
+    nodes = Dict{Symbol, AST}()
 
     for instruction in kernel.instructions
         if isempty(instruction.dependencies)
@@ -301,5 +302,6 @@ function compile_native_julia(kernel::LoopKernel)
             $(body)
         end
     end
+    @show expr
     eval(expr)
 end

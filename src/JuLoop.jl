@@ -1,5 +1,6 @@
 module JuLoop
 
-# Write your package code here.
+include("datatypes.jl")
+include("compilation.jl")
 
 end
