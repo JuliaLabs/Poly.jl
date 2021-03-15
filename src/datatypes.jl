@@ -19,12 +19,28 @@ end
 
 
 """
+Represents the AST of instruction and loop ordering for a kernel
+Args:
+    self: either Instruction or Domain object
+    children: list of dependent Instructions or Domains
+    parents: list of Instructions or Domains dependent on
+"""
+struct AST
+    self::Union{Domain, Instruction}
+    children::Vector{AST}
+    parents::Vector{AST}
+end
+
+
+"""
 Represents an ISL SimpleSet
 Args:
     iname: symbol representing the simple set
     lowerbound: lowerbound of the simple set
     upperbound: upperbound of the simple set
     recurrence: recurrence relation of elements in the set (i.e, change to loop bounds)
+    dependencies: dependencies of this domain
+    instructions: instructions in the body of this domain (assigned after initialization)
 
 Example Domain:
 >>> domains = [Domain(:i, 1, :(size(out, 1)), :(i += 1)),
@@ -36,6 +52,8 @@ struct Domain
     lowerbound::Union{Number, Expr}
     upperbound::Union{Number, Expr}
     recurrence::Expr
+    dependencies::Vector{Symbol}
+    instructions::Vector{Union{Instruction, Domain}}
 end
 
 
