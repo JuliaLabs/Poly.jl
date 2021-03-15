@@ -1,5 +1,6 @@
 using MacroTools
-import datatypes.jl
+using JuLoop
+
 export compile_native_julia
 
 """
@@ -14,20 +15,20 @@ function add_loop_deps(kernel::LoopKernel)
         for domain in kernel.domains
             if inexpr(inst.body, domain.iname)
                 # instruction references loop iname
-                append!(inst.dependencies, domain.iname)
+                push!(inst.dependencies, domain.iname)
             end
         end
     end
-    for i = 1:len(kernel.domains)
+    for i = 1:length(kernel.domains)
         domain1 = kernel.domains[i]
-        for j = i+1:len(kernel.domains)
+        for j = i+1:length(kernel.domains)
             domain2 = kernel.domains[j]
             if inexpr(domain1.recurrence, domain2.iname)
-                append!(domain2.dependencies, domain1.iname)
+                push!(domain2.dependencies, domain1.iname)
             elseif isexpr(domain1.lowerbound) && inexpr(domain1.lowerbound, domain2.iname)
-                append!(domain2.dependencies, domain1.iname)
+                push!(domain2.dependencies, domain1.iname)
             elseif isexpr(domain1.upperbound) && inexpr(domain1.upperbound, domain2.iname)
-                append!(domain2.dependencies, domain1.iname)
+                push!(domain2.dependencies, domain1.iname)
             end
         end
     end
@@ -39,12 +40,12 @@ end
 uses the implicit order of kernel instructions to add dependencies between instructions
 """
 function add_impl_deps(kernel::LoopKernel)
-    for i = 1:len(kernel.instructions)
+    for i = 1:length(kernel.instructions)
         # look only in instructions following i
-        for j = i+1:len(kernel.instructions)
-            # if inexpr(kernel.instructions[i].body, kernel.instructions[j].id)
+        for j = i+1:length(kernel.instructions)
+            # if inexpr(kernel.instructions[i].body, kernel.instructions[j].iname)
             #     # j uses i directly, add dep
-            #     append!(kernel.instructions[j].dependencies, kernel.instructions[i].id)
+            #     push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
             # end
             # check if there is a read/write dependency
             # read in i, write in j -> no dependency
@@ -52,12 +53,13 @@ function add_impl_deps(kernel::LoopKernel)
             # write in i, read in j -> dependency
             # write in i, write in j -> no dependency
             # first check for function call (and if so, assume dependency)
-            if kernel.instructions[j].head == :call
-                append!(kernel.instructions[j].dependencies, kernel.instructions[i].id)
+            # TODO more intelligent dependencies with function calls
+            if kernel.instructions[j].body.head == :call
+                push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
             else
                 # need to check if LHS symbol that is being written in i is read in j
                 lhs = kernel.instructions[j].body.args[1]
-                while typeof(lhs) != :Symbol
+                while typeof(lhs) != Symbol
                     lhs = lhs.args[1]
                 end
                 rhs = kernel.instructions[j].body
@@ -66,7 +68,7 @@ function add_impl_deps(kernel::LoopKernel)
                     rhs = rhs.args[2]
                 end
                 if inexpr(rhs, lhs)
-                    append!(kernel.instructions[j].dependencies, kernel.instructions[i].id)
+                    push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
                 end
             end
         end
@@ -82,60 +84,61 @@ AST FUNCTIONS
 constructs an AST using existing dependencies
 """
 function construct_ast(kernel::LoopKernel)::AST
-    add_impl_deps()
-    add_loop_deps()
+    add_impl_deps(kernel)
+    add_loop_deps(kernel)
 
-    ast = AST{:none, Vector{AST}[], Vector{AST}[]} # head node
-    remaining_items = Vector{Union{Instruction, Domain}}[]
+    ast = AST(nothing, AST[], AST[]) # head node
+    remaining_items = Union{Instruction, Domain}[]
     nodes = Dict{Symbol, AST}()
 
     for instruction in kernel.instructions
         if isempty(instruction.dependencies)
-            node = AST{instruction, Vector{AST}[], Vector{AST}[]}
-            append!(ast.children, node)
-            append!(node.parents, ast)
-            nodes[instruction] = node
+            node = AST(instruction, AST[], AST[])
+            push!(ast.children, node)
+            push!(node.parents, ast)
+            nodes[instruction.iname] = node
         else
-            append!(remaining_items, instruction)
+            push!(remaining_items, instruction)
         end
 
     end
 
     for domain in kernel.domains
         if isempty(domain.dependencies)
-            node = AST{domain, Vector{AST}[], Vector{AST}[]}
-            append!(ast.children, node)
-            append!(node.parents, ast)
-            nodes[domain] = node
+            node = AST(domain, AST[], AST[])
+            push!(ast.children, node)
+            push!(node.parents, ast)
+            nodes[domain.iname] = node
         else
-            append(remaining_items, domain)
+            push!(remaining_items, domain)
         end
     end
 
 
     while !isempty(remaining_items)
-        next = :none
-        for item in remaining_items
-            good = true
-            for dep in item.dependencies
-                if !(dep in keys(nodes))
-                    good = false
-                end
-            end
-            if good
-                next = pop!(remaining_items, item)
-                break
-            end
+        i = findfirst(remaining_items) do item
+          good = true
+          for dep in item.dependencies
+              if !(dep in keys(nodes))
+                  good = false
+                  break
+              end
+          end
+          good
         end
 
-        if next != :none
-            node = AST{next, Vector{AST}[], Vector{AST}[]}
-            for dep in next.dependencies
-                append!(node.parents, nodes[dep])
-                append!(nodes[dep].children, node)
-            end
-        else
-            break
+        if i == nothing
+            error("items left but dependencies not satisfied")
+        end
+
+        item = remaining_items[i]
+        deleteat!(remaining_items, i)
+
+        node = AST(item, AST[], AST[])
+        for dep in item.dependencies
+            push!(node.parents, nodes[dep])
+            push!(nodes[dep].children, node)
+            nodes[item.iname] = node
         end
     end
 
@@ -149,26 +152,34 @@ topologically sort the AST into an order of instructions
 will modify ast
 """
 function topological_sort_order(ast::AST)::Vector{Union{Domain, Instruction}}
-    order = Vector{Union{Domain, Instruction}[]
-    sources = Vector{Union{Domain, Instruction}[head for head in ast.children]
+    order = Union{Domain, Instruction}[]
+    sources = AST[head for head in ast.children]
 
     while !isempty(sources)
-        n = pop!(sources, sources[1])
-        append!(order, n.self)
+        n = pop!(sources)
+        push!(order, n.self)
         while !isempty(n.children)
-            child = pop!(n.children, n.children[1])
-            remove!(child.parents, n)
+            child = pop!(n.children)
+            filter!(e->e != n, child.parents)
             if isempty(child.parents)
-                if typeof(n.self) == Domain
-                    append!(n.self.instructions, child.self)
-                else
-                    append!(sources, child)
-                end
+                push!(sources, child)
             end
         end
     end
 
     return order
+end
+
+
+"""
+nest instructions in loops
+"""
+function nest_in_loops(order::Vector{Union{Domain, Instruction}})::Vector{Union{Domain, Instruction}}
+    new_order = Union{Domain, Instruction}[]
+
+    # TODO nest loops
+
+    return new_order
 end
 
 
@@ -179,22 +190,28 @@ SYMBOLS FUNCTIONS
 """
 get all symbols in symbol
 """
-get_all_symbols(s::Symbol)::Vector{Symbol} = [s]
+get_all_symbols(s::Symbol)::Set{Symbol} = Set([s])
 
 
 """
 get all symbols in number
 """
-get_all_symbols(n::Number)::Vector{Symbol} = []
+get_all_symbols(n::Number)::Set{Symbol} = Set{Symbol}()
 
 
 """
 get all symbols in expression
 """
-function get_all_symbols(expr::Expr)::Vector{Symbol}
-    symbols = Vector{Symbol}[]
-    for arg in expr.args
-        symbols = vcat(symbols, get_all_symbols(arg))
+function get_all_symbols(expr::Expr)::Set{Symbol}
+    symbols = Set{Symbol}()
+    if expr.head == :call
+        for arg in expr.args[2:end]
+            union!(symbols, get_all_symbols(arg))
+        end
+    else
+        for arg in expr.args
+            union!(symbols, get_all_symbols(arg))
+        end
     end
     return symbols
 end
@@ -203,18 +220,18 @@ end
 """
 get all symbols in kernel
 """
-function get_all_symbols(kernel::LoopKernel)::Vector{Symbol}
-    symbols = Vector{Symbol}[]
+function get_all_symbols(kernel::LoopKernel)::Set{Symbol}
+    symbols = Set{Symbol}()
 
     for instruction in kernel.instructions
-        symbols = vcat(symbols, get_all_symbols(instruction.body))
+        union!(symbols, get_all_symbols(instruction.body))
     end
 
     for domain in kernel.domains
-        symbols = vcat(symbols, get_all_symbols(domain.recurrence))
-        symbols = vcat(symbols, get_all_symbols(domain.lowerbound))
-        symbols = vcat(symbols, get_all_symbols(domain.upperbound))
-        append!(symbols, domain.iname)
+        union!(symbols, get_all_symbols(domain.recurrence))
+        union!(symbols, get_all_symbols(domain.lowerbound))
+        union!(symbols, get_all_symbols(domain.upperbound))
+        push!(symbols, domain.iname)
     end
 
     return symbols
@@ -224,20 +241,23 @@ end
 """
 get all function arguments to kernel
 """
-function get_kernel_args(kernel::LoopKernel)::Vector{Symbol}
+function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
     all_symbols = get_all_symbols(kernel)
-    defined_symbols = Vector{Symbol}[]
+    defined_symbols = Set{Symbol}()
 
     for instruction in kernel.instructions
         lhs = instruction.body.args[1]
-        append!(defined_symbols, lhs)
+        if typeof(lhs) != Symbol
+            continue
+        end
+        push!(defined_symbols, lhs)
     end
 
     for domain in kernel.domains
-        append!(defined_symbols, domain.iname)
+        push!(defined_symbols, domain.iname)
     end
 
-    args = [s for symbol in all_symbols if !(symbol in defined_symbols)]
+    args = Set([s for s in all_symbols if !(s in defined_symbols)])
 
     return args
 end
@@ -289,16 +309,19 @@ compile native julia code given a kernel
 """
 function compile_native_julia(kernel::LoopKernel)
     ast = construct_ast(kernel)
+    @show ast
     order = topological_sort_order(ast)
+    @show order
 
     # construct from order
     body = construct(order)
+    @show body
 
     # kernel args
     args = get_kernel_args(kernel)
 
     expr = quote
-        function $(gensym())($(args...))
+        function $(gensym(:JuLoop))(;$(args...))
             $(body)
         end
     end
