@@ -47,15 +47,8 @@ function add_impl_deps(kernel::LoopKernel)
     for i = 1:length(kernel.instructions)
         # look only in instructions following i
         for j = i+1:length(kernel.instructions)
-            # if inexpr(kernel.instructions[i].body, kernel.instructions[j].iname)
-            #     # j uses i directly, add dep
-            #     push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
-            # end
             # check if there is a read/write dependency
-            # read in i, write in j -> no dependency
-            # read/read -> no dependency
             # write in i, read in j -> dependency
-            # write in i, write in j -> no dependency
             # first check for function call (and if so, assume dependency)
             # TODO more intelligent dependencies with function calls
             if kernel.instructions[j].body.head == :call
@@ -85,7 +78,7 @@ AST FUNCTIONS
 """
 
 """
-constructs an AST using existing dependencies
+constructs an AST using existing dependencies in kernel
 """
 function construct_ast(kernel::LoopKernel)::AST
     add_impl_deps(kernel)
@@ -95,6 +88,7 @@ function construct_ast(kernel::LoopKernel)::AST
     remaining_items = Union{Instruction, Domain}[]
     nodes = Dict{Symbol, AST}()
 
+    # add base instructions
     for instruction in kernel.instructions
         if isempty(instruction.dependencies)
             node = AST(instruction, AST[], AST[])
@@ -107,6 +101,7 @@ function construct_ast(kernel::LoopKernel)::AST
 
     end
 
+    # add base domains
     for domain in kernel.domains
         if isempty(domain.dependencies)
             node = AST(domain, AST[], AST[])
@@ -118,7 +113,7 @@ function construct_ast(kernel::LoopKernel)::AST
         end
     end
 
-
+    # add remaining items as their dependencies are satisfied
     while !isempty(remaining_items)
         i = findfirst(remaining_items) do item
           good = true
@@ -132,7 +127,7 @@ function construct_ast(kernel::LoopKernel)::AST
         end
 
         if i == nothing
-            error("items left but dependencies not satisfied")
+            error("items left but dependencies not satisfied: ", [s.iname for s in remaining_items])
         end
 
         item = remaining_items[i]
@@ -160,11 +155,13 @@ function topological_sort_order(ast::AST)::Vector{Union{Domain, Instruction}}
     sources = AST[head for head in ast.children]
 
     while !isempty(sources)
+        # pop first to preserve original order if no dependencies
         n = popfirst!(sources)
         push!(order, n.self)
         while !isempty(n.children)
             child = popfirst!(n.children)
             filter!(e->e != n, child.parents)
+            # child has no more dependencies
             if isempty(child.parents)
                 push!(sources, child)
             end
@@ -176,7 +173,7 @@ end
 
 
 """
-check if domains share instructions
+check if domains share instructions, and return those instructions
 """
 function domains_shared_inst(domain1::Domain, domain2::Domain)::Vector{Union{Instruction, Domain}}
     shared = Union{Instruction, Domain}[]
@@ -195,16 +192,19 @@ end
 nest loops
 """
 function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}})::Vector{Union{Domain, Instruction}}
+
     new_order = Union{Domain, Instruction}[]
 
     for item in order
         if typeof(item) == Domain
             for domain in kernel.domains
                 if domain != item
+                    # get shared instructions
                     shared = domains_shared_inst(domain, item)
                     if length(shared) > 0
                         i = findfirst(e->e==item, order)
                         j = findfirst(e->e==domain, order)
+                        # only modify if item is before domain (avoid repeats)
                         if i < j
                             # remove overlapping instructions from earlier domain
                             indices = findall(e->e in shared, item.instructions)
@@ -229,6 +229,7 @@ function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}
                 end
             end
         else
+            # instruction not in loop
             if length(item.dependencies) == 0
                 push!(new_order, item)
             end
@@ -245,23 +246,24 @@ SYMBOLS FUNCTIONS
 """
 
 """
-get all symbols in symbol
+get all symbols in a symbol
 """
 get_all_symbols(s::Symbol)::Set{Symbol} = Set([s])
 
 
 """
-get all symbols in number
+get all symbols in a number
 """
 get_all_symbols(n::Number)::Set{Symbol} = Set{Symbol}()
 
 
 """
-get all symbols in expression
+get all symbols in an expression
 """
 function get_all_symbols(expr::Expr)::Set{Symbol}
     symbols = Set{Symbol}()
     if expr.head == :call
+        # if function call, include all function args
         for arg in expr.args[2:end]
             union!(symbols, get_all_symbols(arg))
         end
@@ -275,7 +277,7 @@ end
 
 
 """
-get all symbols in kernel
+get all symbols in a kernel
 """
 function get_all_symbols(kernel::LoopKernel)::Set{Symbol}
     symbols = Set{Symbol}()
@@ -302,6 +304,7 @@ function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
     all_symbols = get_all_symbols(kernel)
     defined_symbols = Set{Symbol}()
 
+    # get all symbols defined in LHS of instructions
     for instruction in kernel.instructions
         lhs = instruction.body.args[1]
         if typeof(lhs) != Symbol
@@ -310,10 +313,12 @@ function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
         push!(defined_symbols, lhs)
     end
 
+    # get all loop domain symbols
     for domain in kernel.domains
         push!(defined_symbols, domain.iname)
     end
 
+    # args are all symbols that are not defined symbols
     args = Set([s for s in all_symbols if !(s in defined_symbols)])
 
     return args
@@ -366,15 +371,8 @@ compile native julia code given a kernel
 """
 function compile_native_julia(kernel::LoopKernel)
     ast = construct_ast(kernel)
-    @show ast
     order = topological_sort_order(ast)
-    @show [e.iname for e in order]
     order = nest_loops(kernel, order)
-    @show [e.iname for e in order]
-
-    for d in kernel.domains
-        @show d.iname, [s.iname for s in d.instructions]
-    end
 
     # construct from order
     body = construct(order)
@@ -387,6 +385,5 @@ function compile_native_julia(kernel::LoopKernel)
             $(body)
         end
     end
-    @show expr
     eval(expr)
 end
