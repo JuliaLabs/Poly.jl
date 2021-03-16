@@ -11,7 +11,7 @@ using Test
                Domain(:k, 1, :(size(A, 2)), :(k += 1), Set(), [])]
 
 
-    kern = compile_native_julia(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}]))
+    kern = compile(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}]))
 
     A = rand(10, 10)
     B = rand(10, 10)
@@ -30,7 +30,7 @@ using Test
                Domain(:j, 1, :(size(out, 2)), :(j += 1), Set(), [])]
 
 
-    kern = compile_native_julia(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}]))
+    kern = compile(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}]))
 
     A = rand(10, 10)
     B = rand(10, 10)
@@ -39,4 +39,31 @@ using Test
     kern(out=out, A=A, B=B)
 
     @test isapprox(out, A+B.+4)
+
+
+    # test macros simple
+    A = rand(10)
+    out = zeros(10)
+
+    @poly_loop for i = 1:size(out, 1)
+        out[i] = A[i]*2
+    end
+
+    @test isapprox(out, A*2)
+
+    # test macros nested loops
+    A = rand(10, 10)
+    B = rand(10, 10)
+    out = zeros(10, 10)
+
+    @poly_loop for i = 1:size(out, 1)
+        for j = 1:size(out, 2)
+            for k = 1:size(A, 2)
+                out[i, j] += A[i, k] * B[k, j]
+            end
+            out[i, j] *= 2
+        end
+    end
+
+    @test isapprox(out, A*B*2)
 end

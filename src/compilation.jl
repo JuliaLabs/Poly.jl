@@ -1,7 +1,7 @@
 using MacroTools
 using JuLoop
 
-export compile_native_julia
+export compile
 
 """
 DEPENDENCIES FUNCTIONS
@@ -195,13 +195,19 @@ function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}
 
     new_order = Union{Domain, Instruction}[]
 
+    nested_domains = Dict{Symbol, Bool}(s.iname=> false for s in kernel.domains)
+
     for item in order
         if typeof(item) == Domain
+            nested = false
             for domain in kernel.domains
                 if domain != item
                     # get shared instructions
                     shared = domains_shared_inst(domain, item)
                     if length(shared) > 0
+                        nested = true
+                        nested_domains[domain.iname] = true
+                        nested_domains[item.iname] = true
                         i = findfirst(e->e==item, order)
                         j = findfirst(e->e==domain, order)
                         # only modify if item is before domain (avoid repeats)
@@ -227,6 +233,10 @@ function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}
                         end
                     end
                 end
+            end
+            if !nested && !nested_domains[item.iname]
+                # shares no instructions with other loops
+                push!(new_order, item)
             end
         else
             # instruction not in loop
@@ -255,6 +265,11 @@ get_all_symbols(s::Symbol)::Set{Symbol} = Set([s])
 get all symbols in a number
 """
 get_all_symbols(n::Number)::Set{Symbol} = Set{Symbol}()
+
+"""
+get all symbols in a LineNumberNode
+"""
+get_all_symbols(n::LineNumberNode)::Set{Symbol} = Set{Symbol}()
 
 
 """
@@ -336,10 +351,11 @@ function construct(domain::Domain)
     body = map(expr->construct(expr), domain.instructions)
     iname = domain.iname
     quote
-        $iname = $(domain.lowerbound)
-        while $iname <= $(domain.upperbound)
-            $(body...)
-            $iname = $(domain.recurrence)
+        let $iname = $(domain.lowerbound)
+            while $iname <= $(domain.upperbound)
+                $(body...)
+                $(domain.recurrence)
+            end
         end
     end
 end
@@ -369,7 +385,7 @@ COMPILATION
 """
 compile native julia code given a kernel
 """
-function compile_native_julia(kernel::LoopKernel)
+function compile(kernel::LoopKernel)
     ast = construct_ast(kernel)
     order = topological_sort_order(ast)
     order = nest_loops(kernel, order)
@@ -386,4 +402,18 @@ function compile_native_julia(kernel::LoopKernel)
         end
     end
     eval(expr)
+end
+
+"""
+compile native julia code given a kernel to an expression
+"""
+function compile_expr(kernel::LoopKernel)::Expr
+    ast = construct_ast(kernel)
+    order = topological_sort_order(ast)
+    order = nest_loops(kernel, order)
+
+    # construct from order
+    expr = construct(order)
+
+    return expr
 end

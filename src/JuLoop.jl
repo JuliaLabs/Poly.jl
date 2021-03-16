@@ -91,16 +91,7 @@ AbstractTrees.parentlinks(::AST) = AbstractTrees.StoredParents()
 AbstractTrees.printnode(io::IO, d::AST) = print(io, get_id(d))
 Base.show(io::IO, d::AST) = print_tree(io, d)
 
-
-"""
-@poly_loop for ()....
-    @poly_loop for ()...
-        @poly_loop for ()...
-            out[i, j] += A[i, k] * B[k, j]
-        out[i, j] *= 2
-
-"""
-
 include("compilation.jl")
+include("macros.jl")
 
 end
