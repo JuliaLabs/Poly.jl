@@ -16,6 +16,7 @@ function add_loop_deps(kernel::LoopKernel)
             if inexpr(inst.body, domain.iname)
                 # instruction references loop iname
                 push!(inst.dependencies, domain.iname)
+                push!(domain.instructions, inst)
             end
         end
     end
@@ -25,10 +26,13 @@ function add_loop_deps(kernel::LoopKernel)
             domain2 = kernel.domains[j]
             if inexpr(domain1.recurrence, domain2.iname)
                 push!(domain2.dependencies, domain1.iname)
+                push!(domain1.instructions, domain2)
             elseif isexpr(domain1.lowerbound) && inexpr(domain1.lowerbound, domain2.iname)
                 push!(domain2.dependencies, domain1.iname)
+                push!(domain1.instructions, domain2)
             elseif isexpr(domain1.upperbound) && inexpr(domain1.upperbound, domain2.iname)
                 push!(domain2.dependencies, domain1.iname)
+                push!(domain1.instructions, domain2)
             end
         end
     end
@@ -149,17 +153,17 @@ end
 
 """
 topologically sort the AST into an order of instructions
-will modify ast
+modifies ast
 """
 function topological_sort_order(ast::AST)::Vector{Union{Domain, Instruction}}
     order = Union{Domain, Instruction}[]
     sources = AST[head for head in ast.children]
 
     while !isempty(sources)
-        n = pop!(sources)
+        n = popfirst!(sources)
         push!(order, n.self)
         while !isempty(n.children)
-            child = pop!(n.children)
+            child = popfirst!(n.children)
             filter!(e->e != n, child.parents)
             if isempty(child.parents)
                 push!(sources, child)
@@ -172,14 +176,67 @@ end
 
 
 """
-nest instructions in loops
+check if domains share instructions
 """
-function nest_in_loops(order::Vector{Union{Domain, Instruction}})::Vector{Union{Domain, Instruction}}
+function domains_shared_inst(domain1::Domain, domain2::Domain)::Vector{Union{Instruction, Domain}}
+    shared = Union{Instruction, Domain}[]
+    for inst1 in domain1.instructions
+        for inst2 in domain2.instructions
+            if inst1.iname == inst2.iname
+                push!(shared, inst1)
+            end
+        end
+    end
+    return shared
+end
+
+
+"""
+nest loops
+"""
+function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}})::Vector{Union{Domain, Instruction}}
     new_order = Union{Domain, Instruction}[]
 
-    # TODO nest loops
+    for item in order
+        if typeof(item) == Domain
+            for domain in kernel.domains
+                if domain != item
+                    shared = domains_shared_inst(domain, item)
+                    if length(shared) > 0
+                        i = findfirst(e->e==item, order)
+                        j = findfirst(e->e==domain, order)
+                        if i < j
+                            # remove overlapping instructions from earlier domain
+                            indices = findall(e->e in shared, item.instructions)
+                            deleteat!(item.instructions, indices)
+                            # add later domain into earlier domain's instructions
+                            after = indices[1]
+                            insert!(item.instructions, after, domain)
+                            # append to new order if not already subset
+                            append = true
+                            for base in new_order
+                                if typeof(base) == Domain
+                                    if item in base.instructions
+                                        append = false
+                                    end
+                                end
+                            end
+                            if append
+                                push!(new_order, item)
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            if length(item.dependencies) == 0
+                push!(new_order, item)
+            end
+        end
+    end
 
     return new_order
+
 end
 
 
@@ -311,11 +368,16 @@ function compile_native_julia(kernel::LoopKernel)
     ast = construct_ast(kernel)
     @show ast
     order = topological_sort_order(ast)
-    @show order
+    @show [e.iname for e in order]
+    order = nest_loops(kernel, order)
+    @show [e.iname for e in order]
+
+    for d in kernel.domains
+        @show d.iname, [s.iname for s in d.instructions]
+    end
 
     # construct from order
     body = construct(order)
-    @show body
 
     # kernel args
     args = get_kernel_args(kernel)

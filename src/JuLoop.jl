@@ -20,8 +20,6 @@ struct Instruction
     dependencies::Set{Symbol}
 end
 
-Instruction
-
 
 """
 Represents an ISL SimpleSet
@@ -80,10 +78,17 @@ struct AST
     parents::Vector{AST}
 end
 
+function get_id(ast::AST)
+    if ast.self == nothing
+        return nothing
+    end
+    return ast.self.iname
+end
+
 using AbstractTrees
 AbstractTrees.children(d::AST) = d.children
 AbstractTrees.parentlinks(::AST) = AbstractTrees.StoredParents()
-AbstractTrees.printnode(io::IO, d::AST) = print(io, d.self)
+AbstractTrees.printnode(io::IO, d::AST) = print(io, get_id(d))
 Base.show(io::IO, d::AST) = print_tree(io, d)
 
 
