@@ -1,5 +1,5 @@
 using JuLoop
-export @poly_loop
+export @poly_loop, @depends_on
 
 """
 helper for macro
@@ -34,8 +34,21 @@ function poly_loop(ex::Expr)::LoopKernel
             subkern = poly_loop(line)
             append!(instructions, subkern.instructions)
             append!(domains, subkern.domains)
+        elseif typeof(line) == Expr && line.head == :macrocall && line.args[1] == Symbol("@depends_on")
+            # dependency macro
+            if length(line.args) != 4 || typeof(line.args[3]) != Expr || length(line.args[3].args) != 2
+                error("use dependency with @depends_on elem=<Symbol> <Expr> only")
+            end
+            dependency = line.args[3].args[2]
+            if typeof(dependency) != Symbol
+                error("use dependency @depends_on with symbol only")
+            end
+            expr = line.args[4]
+            iname = gensym(string(expr))
+            inst = Instruction(iname, expr, Set([dependency]))
+            push!(instructions, inst)
         elseif typeof(line) != LineNumberNode
-            iname = gensym(:poly_instruction)
+            iname = gensym(string(line))
             inst = Instruction(iname, line, Set())
             push!(instructions, inst)
         end
@@ -63,6 +76,13 @@ end
 Notes:
 @poly_loop currently requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
 
+Dependencies are inferred by accesses. If a dependency is required that cannot be inferred from variable reads and writes, please use the @depends_on macro to specify a depencence
+
+    Example:
+    @poly_loop for i = 1:10
+        @depends_on elem=i println("hello world")
+    end
+
 """
 macro poly_loop(ex0...)
     if length(ex0) != 1
@@ -81,4 +101,14 @@ macro poly_loop(ex0...)
     esc(quote
         $(expr)
     end)
+end
+
+
+"""
+placeholder macro for @poly_loop manual dependencies
+Usage: @depends_on elem=<Symbol> <Expr> (not for loops)
+see @poly_loop for more details
+"""
+macro depends_on(ex0...)
+
 end

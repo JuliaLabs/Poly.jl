@@ -17,6 +17,9 @@ function add_loop_deps(kernel::LoopKernel)
                 # instruction references loop iname
                 push!(inst.dependencies, domain.iname)
                 push!(domain.instructions, inst)
+            elseif domain.iname in inst.dependencies
+                # add instructions for loops declared as dependencies
+                push!(domain.instructions, inst)
             end
         end
     end
@@ -55,7 +58,7 @@ function add_impl_deps(kernel::LoopKernel)
                 push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
             else
                 # need to check if LHS symbol that is being written in i is read in j
-                lhs = kernel.instructions[j].body.args[1]
+                lhs = kernel.instructions[i].body.args[1]
                 while typeof(lhs) != Symbol
                     lhs = lhs.args[1]
                 end
@@ -196,6 +199,7 @@ function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}
     new_order = Union{Domain, Instruction}[]
 
     nested_domains = Dict{Symbol, Bool}(s.iname=> false for s in kernel.domains)
+    parents = Dict{Symbol, Domain}()
 
     for item in order
         if typeof(item) == Domain
@@ -205,9 +209,6 @@ function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}
                     # get shared instructions
                     shared = domains_shared_inst(domain, item)
                     if length(shared) > 0
-                        nested = true
-                        nested_domains[domain.iname] = true
-                        nested_domains[item.iname] = true
                         i = findfirst(e->e==item, order)
                         j = findfirst(e->e==domain, order)
                         # only modify if item is before domain (avoid repeats)
@@ -218,18 +219,60 @@ function nest_loops(kernel::LoopKernel, order::Vector{Union{Domain, Instruction}
                             # add later domain into earlier domain's instructions
                             after = indices[1]
                             insert!(item.instructions, after, domain)
-                            # append to new order if not already subset
-                            append = true
-                            for base in new_order
-                                if typeof(base) == Domain
-                                    if item in base.instructions
-                                        append = false
+                            # append to new order if not already subset or in order
+                            if domain.iname in keys(parents)
+                                # domain is already nested, replace in nesting
+                                parent = parents[domain.iname]
+                                index = findall(e->e==domain, parent.instructions)[1]
+                                # remove domain from old parent
+                                deleteat!(parent.instructions, index)
+                                # add item as new child
+                                if !(item.iname in keys(parents))
+                                    # nest where domain was
+                                    insert!(parent.instructions, index, item)
+                                    parents[item.iname] = parent
+                                else
+                                    # need to propogate up until no more parents to nest
+                                    # find super parent of domain
+                                    super_parent = parent
+                                    while super_parent.iname in keys(parents)
+                                        super_parent = parents[super_parent.iname]
+                                    end
+                                    item_parent = parents[item.iname]
+                                    while item_parent.iname in keys(parents) && parents[item_parent.iname] != super_parent
+                                        item_parent = parents[item_parent.iname]
+                                    end
+
+                                    if item_parent != parent
+                                        # add highest up parent that isn't super parent to domain's immediate parent
+                                        if !(item_parent in parent.instructions)
+                                            insert!(parent.instructions, index, item_parent)
+                                        end
+                                        # remove item parent from old parent if one
+                                        if item_parent.iname in keys(parents)
+                                            p = parents[item_parent.iname]
+                                            if p != parent
+                                                deleteat!(p.instructions, findall(e->e==item_parent, p.instructions))
+                                            end
+                                        end
+                                        parents[item_parent.iname] = parent
+
+                                    end
+
+                                    if item_parent in new_order
+                                        deleteat!(new_order, findall(e->e==item_parent, new_order)[1])
                                     end
                                 end
-                            end
-                            if append
+                            elseif !(item.iname in keys(parents)) && !(item in new_order)
+                                # item is not nested in another or in order
                                 push!(new_order, item)
                             end
+
+                            # store parents
+                            nested = true
+                            nested_domains[domain.iname] = true
+                            nested_domains[item.iname] = true
+                            parents[domain.iname] = item
                         end
                     end
                 end
@@ -404,6 +447,19 @@ function compile(kernel::LoopKernel)
     eval(expr)
 end
 
+
+# function printall(d)
+#     if typeof(d) == Instruction
+#         print(" ", d, " ")
+#     else
+#         print(" ", d, "-> ( ")
+#         for i in d.instructions
+#             printall(i)
+#         end
+#         print(" ) <-", d, " ")
+#     end
+# end
+
 """
 compile native julia code given a kernel to an expression
 """
@@ -411,6 +467,10 @@ function compile_expr(kernel::LoopKernel)::Expr
     ast = construct_ast(kernel)
     order = topological_sort_order(ast)
     order = nest_loops(kernel, order)
+
+    # for i in order
+    #     printall(i)
+    # end
 
     # construct from order
     expr = construct(order)

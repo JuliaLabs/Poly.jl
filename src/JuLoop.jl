@@ -20,6 +20,8 @@ struct Instruction
     dependencies::Set{Symbol}
 end
 
+Base.show(io::IO, d::Instruction) = print(io, d.iname)
+
 
 """
 Represents an ISL SimpleSet
@@ -38,12 +40,14 @@ Example Domain:
 """
 struct Domain
     iname::Symbol
-    lowerbound::Union{Number, Expr}
-    upperbound::Union{Number, Expr}
+    lowerbound::Union{Number, Expr, Symbol}
+    upperbound::Union{Number, Expr, Symbol}
     recurrence::Expr
     dependencies::Set{Symbol}
     instructions::Vector{Union{Instruction, Domain}}
 end
+
+Base.show(io::IO, d::Domain) = print(io, d.iname)
 
 
 """
