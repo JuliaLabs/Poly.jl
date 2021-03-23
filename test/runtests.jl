@@ -68,6 +68,19 @@ using StaticArrays
 
     @test isapprox(out, A*B*2)
 
+    # test loop iterators depending on other iterators
+    arr = zeros(3, 3)
+    expected = [1 1 1;
+                0 1 1;
+                0 0 1]
+    @poly_loop for i = 1:3
+        for j = i:3
+            arr[i, j] = 1
+        end
+    end
+
+    @test arr == expected
+
     # test macros complicated (tiled matrix multiplication)
     A = rand(128, 128)
     B = rand(128, 128)
