@@ -52,22 +52,42 @@ function add_impl_deps(kernel::LoopKernel)
         for j = i+1:length(kernel.instructions)
             # check if there is a read/write dependency
             # write in i, read in j -> dependency
+            # read in i, write in j -> dependency (stale read in i otherwise)
+            # write in i, write in j -> dependency (wrong final value otherwise)
+
             # first check for function call (and if so, assume dependency)
             # TODO more intelligent dependencies with function calls
             if kernel.instructions[j].body.head == :call
                 push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
             else
                 # need to check if LHS symbol that is being written in i is read in j
-                lhs = kernel.instructions[i].body.args[1]
-                while typeof(lhs) != Symbol
-                    lhs = lhs.args[1]
+                lhs_i = kernel.instructions[i].body.args[1]
+                while typeof(lhs_i) != Symbol
+                    lhs_i = lhs_i.args[1]
                 end
-                rhs = kernel.instructions[j].body
-                if rhs.head == :(=)
+                rhs_j = kernel.instructions[j].body
+                if rhs_j.head == :(=)
                     # only need rhs, since not +=, etc
-                    rhs = rhs.args[2]
+                    rhs_j = rhs_j.args[2]
                 end
-                if inexpr(rhs, lhs)
+                if inexpr(rhs_j, lhs_i)
+                    push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
+                end
+                # need to check if RHS read in i is written to in j
+                lhs_j = kernel.instructions[j].body.args[1]
+                while typeof(lhs_j) != Symbol
+                    lhs_j = lhs_j.args[1]
+                end
+                rhs_i = kernel.instructions[i].body
+                if rhs_i.head == :(=)
+                    # only need rhs, since not +=, etc
+                    rhs_i = rhs_i.args[2]
+                end
+                if inexpr(rhs_i, lhs_j)
+                    push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
+                end
+                # need to check if i and j write to same thing
+                if inexpr(lhs_i, lhs_j)
                     push!(kernel.instructions[j].dependencies, kernel.instructions[i].iname)
                 end
             end

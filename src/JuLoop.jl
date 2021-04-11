@@ -97,5 +97,6 @@ Base.show(io::IO, d::AST) = print_tree(io, d)
 
 include("compilation.jl")
 include("macros.jl")
+include("isl_helper.jl")
 
 end
