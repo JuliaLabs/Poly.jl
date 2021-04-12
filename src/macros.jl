@@ -44,11 +44,19 @@ function poly_loop(ex::Expr)::LoopKernel
                 error("use dependency @depends_on with symbol only")
             end
             expr = line.args[4]
-            iname = gensym(string(expr))
+            symbol = expr
+            while typeof(symbol) != Symbol
+                symbol = symbol.args[1]
+            end
+            iname = gensym(string(symbol))
             inst = Instruction(iname, expr, Set([dependency]))
             push!(instructions, inst)
         elseif typeof(line) != LineNumberNode
-            iname = gensym(string(line))
+            symbol = line
+            while typeof(symbol) != Symbol
+                symbol = symbol.args[1]
+            end
+            iname = gensym(string(symbol))
             inst = Instruction(iname, line, Set())
             push!(instructions, inst)
         end

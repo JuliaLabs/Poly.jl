@@ -399,6 +399,7 @@ function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
     # args are all symbols that are not defined symbols
     args = Set([s for s in all_symbols if !(s in defined_symbols)])
 
+    kernel.args = [a for a in args]
     return args
 end
 
@@ -494,6 +495,8 @@ function compile_expr(kernel::LoopKernel)::Expr
 
     # construct from order
     expr = construct(order)
+
+    create_context_and_universe(kernel)
 
     return expr
 end

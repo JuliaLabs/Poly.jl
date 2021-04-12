@@ -24,11 +24,11 @@ Base.show(io::IO, d::Instruction) = print(io, d.iname)
 
 
 """
-Represents an ISL SimpleSet
+Represents an iteration domain
 Args:
     iname: symbol representing the simple set
-    lowerbound: lowerbound of the simple set
-    upperbound: upperbound of the simple set
+    lowerbound: lowerbound of the simple set (inclusive)
+    upperbound: upperbound of the simple set (inclusive)
     recurrence: recurrence relation of elements in the set (i.e, change to loop bounds)
     dependencies: dependencies of this domain
     instructions: instructions in the body of this domain (assigned after initialization)
