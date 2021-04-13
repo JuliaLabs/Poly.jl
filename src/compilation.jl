@@ -490,7 +490,7 @@ compile native julia code given a kernel to an expression
 function compile_expr(kernel::LoopKernel)::Expr
     ast = construct_ast(kernel)
     order = topological_sort_order(ast)
-    # order = nest_loops(kernel, order)
+    order = nest_loops(kernel, order)
 
     # for i in order
     #     printall(i)

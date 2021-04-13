@@ -100,21 +100,7 @@ function instructions_isl_rep(kernel::LoopKernel)::String
                     end
                     name = string(name, domain.iname)
                     lb = domain.lowerbound
-                    if typeof(lb) == Symbol
-                        lb = eval(quote
-                            Main.$lb
-                        end)
-                    elseif typeof(lb) == Expr
-                        # TODO
-                    end
                     ub = domain.upperbound
-                    if typeof(ub) == Symbol
-                        ub = eval(quote
-                            Main.$ub
-                        end)
-                    elseif typeof(ub) == Expr
-                        # TODO
-                    end
                     count += 1
                     if step != 1
                         conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(lb), string(domain.iname), string(ub)))

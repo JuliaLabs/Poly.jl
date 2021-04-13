@@ -2,10 +2,32 @@ using JuLoop
 export @poly_loop, @depends_on
 using MacroTools
 
+
+"""
+helpers for evaluating an expression in mod
+"""
+function eval_ex_in_mod(ex::Expr, mod::Module)::Number
+    op = ex.args[1]
+    new_args = []
+    for arg in ex.args[2:end]
+        push!(new_args, eval_ex_in_mod(arg, mod))
+    end
+    new_ex = Expr(:call, op, new_args...)
+    return eval(new_ex)
+end
+
+function eval_ex_in_mod(sym::Symbol, mod::Module)
+    return eval(quote $mod.$sym end)
+end
+
+function eval_ex_in_mod(num::Number, mod::Module)::Number
+    return num
+end
+
 """
 helper for macro
 """
-function poly_loop(ex::Expr)::LoopKernel
+function poly_loop(ex::Expr, mod::Module)::LoopKernel
     ex = MacroTools.rmlines(ex)
     # generate loop domain
     bounds = ex.args[1]
@@ -16,14 +38,14 @@ function poly_loop(ex::Expr)::LoopKernel
     end
     if length(space.args) == 3
         # bound : bound
-        lowerbound = space.args[2]
-        upperbound = space.args[3]
+        lowerbound = eval_ex_in_mod(space.args[2], mod)
+        upperbound = eval_ex_in_mod(space.args[3], mod)
         recurrence = :($symbol += 1)
     else
         # bound : step : bound
-        lowerbound = space.args[2]
-        upperbound = space.args[4]
-        recurrence = :($symbol += space.args[3])
+        lowerbound = eval_ex_in_mod(space.args[2], mod)
+        upperbound = eval_ex_in_mod(space.args[4], mod)
+        recurrence = :($symbol += eval_ex_in_mod(space.args[3], mod))
     end
     domains = [Domain(symbol, lowerbound, upperbound, recurrence, Set(), [])]
 
@@ -33,7 +55,7 @@ function poly_loop(ex::Expr)::LoopKernel
     for line in body.args
         if typeof(line) == Expr && line.head == :for
             # nested loops
-            subkern = poly_loop(line)
+            subkern = poly_loop(line, mod)
             append!(instructions, subkern.instructions)
             append!(domains, subkern.domains)
         elseif typeof(line) == Expr && line.head == :macrocall && line.args[1] == Symbol("@depends_on")
@@ -83,6 +105,12 @@ Example:
 end
 (constructs a matrix multiplication and double)
 
+Options:
+The only option supported is calling_module. Ex:
+@poly_loop calling_module=Main for i = 1:size(out, 1)
+    ...
+This is so that the macro can evaluate loop bounds in the calling module. The default is Main, but if using in another module, specify that module
+
 Notes:
 @poly_loop currently requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
 
@@ -95,19 +123,28 @@ Dependencies are inferred by accesses. If a dependency is required that cannot b
 
 """
 macro poly_loop(ex0...)
+    mod = Main
     if length(ex0) != 1
-        error("expected only a loop, got", length(ex0), "elements")
+        module_ex = ex0[1]
+        if typeof(module_ex) != Expr || module_ex.args[1] != :calling_module
+            error("only supported option is calling_module, got: ", module_ex)
+        end
+        mod = eval(quote $(module_ex.args[2]) end)
+        ex0 = ex0[2:end]
+    end
+    if length(ex0) != 1
+        error("expected only a loop, got: ", length(ex0), "elements")
     end
     ex0 = ex0[1] # expression is first arg
 
     if ex0.head == :for
-        loopkern = poly_loop(ex0)
+        kernel = poly_loop(ex0, mod)
     else
         error("expected a for loop, got: ", ex0.head)
     end
 
     # make kernel
-    expr = MacroTools.prettify(compile_expr(loopkern))
+    expr = MacroTools.prettify(compile_expr(kernel))
     esc(quote
         $(expr)
     end)
