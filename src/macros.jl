@@ -1,10 +1,12 @@
 using JuLoop
 export @poly_loop, @depends_on
+using MacroTools
 
 """
 helper for macro
 """
 function poly_loop(ex::Expr)::LoopKernel
+    ex = MacroTools.rmlines(ex)
     # generate loop domain
     bounds = ex.args[1]
     symbol = bounds.args[1]
@@ -105,7 +107,7 @@ macro poly_loop(ex0...)
     end
 
     # make kernel
-    expr = compile_expr(loopkern)
+    expr = MacroTools.prettify(compile_expr(loopkern))
     esc(quote
         $(expr)
     end)

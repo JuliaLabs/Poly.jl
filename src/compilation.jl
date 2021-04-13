@@ -345,6 +345,10 @@ function get_all_symbols(expr::Expr)::Set{Symbol}
         for arg in expr.args[2:end]
             union!(symbols, get_all_symbols(arg))
         end
+    elseif expr.head == :macrocall
+        for arg in expr.args[2:end]
+            union!(symbols, get_all_symbols(arg))
+        end
     else
         for arg in expr.args
             union!(symbols, get_all_symbols(arg))
@@ -385,10 +389,9 @@ function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
     # get all symbols defined in LHS of instructions
     for instruction in kernel.instructions
         lhs = instruction.body.args[1]
-        if typeof(lhs) != Symbol
-            continue
+        if typeof(lhs) == Symbol && instruction.body.head == :(=)
+            push!(defined_symbols, lhs)
         end
-        push!(defined_symbols, lhs)
     end
 
     # get all loop domain symbols
@@ -399,7 +402,7 @@ function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
     # args are all symbols that are not defined symbols
     args = Set([s for s in all_symbols if !(s in defined_symbols)])
 
-    kernel.args = [a for a in args]
+    append!(kernel.args, args)
     return args
 end
 
@@ -487,7 +490,7 @@ compile native julia code given a kernel to an expression
 function compile_expr(kernel::LoopKernel)::Expr
     ast = construct_ast(kernel)
     order = topological_sort_order(ast)
-    order = nest_loops(kernel, order)
+    # order = nest_loops(kernel, order)
 
     # for i in order
     #     printall(i)
@@ -495,6 +498,9 @@ function compile_expr(kernel::LoopKernel)::Expr
 
     # construct from order
     expr = construct(order)
+
+    # kernel "args" for isl
+    get_kernel_args(kernel)
 
     create_context_and_universe(kernel)
 
