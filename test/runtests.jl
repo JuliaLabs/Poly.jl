@@ -11,7 +11,6 @@ using StaticArrays
                Domain(:j, 1, :(size(out, 2)), :(j += 1), Set(), []),
                Domain(:k, 1, :(size(A, 2)), :(k += 1), Set(), [])]
 
-
     kern = compile(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}]))
 
     A = rand(10, 10)
@@ -45,8 +44,9 @@ using StaticArrays
     # test macros simple
     A = rand(10)
     out = zeros(10)
+    n = size(out, 1)
 
-    @poly_loop for i = 1:size(out, 1)
+    @poly_loop for i = 1:n
         out[i] = A[i]*2
     end
 
@@ -56,10 +56,13 @@ using StaticArrays
     A = rand(10, 10)
     B = rand(10, 10)
     out = zeros(10, 10)
+    n = size(out, 1)
+    m = size(out, 2)
+    r = size(A, 2)
 
-    @poly_loop for i = 1:size(out, 1)
-        for j = 1:size(out, 2)
-            for k = 1:size(A, 2)
+    @poly_loop for i = 1:n
+        for j = 1:m
+            for k = 1:r
                 out[i, j] += A[i, k] * B[k, j]
             end
             out[i, j] *= 2
@@ -80,6 +83,14 @@ using StaticArrays
     end
 
     @test arr == expected
+
+    # simple @depends_on test
+    count = 0
+    @poly_loop for i = 1:10
+        @depends_on elem=i count += 1
+    end
+
+    @test count == 10
 
     # test macros complicated (tiled matrix multiplication)
     A = rand(128, 128)
@@ -126,14 +137,5 @@ using StaticArrays
     end
 
     @test isapprox(C, A*B)
-
-
-    # simple @depends_on test
-    count = 0
-    @poly_loop for i = 1:10
-        @depends_on elem=i count += 1
-    end
-
-    @test count == 10
 
 end

@@ -7,6 +7,7 @@ version = "0.1.0"
 AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 ISL = "4d9053e4-97a6-4476-8996-fca684647641"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]

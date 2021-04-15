@@ -3,13 +3,19 @@ using ISL
 import ISL.API
 using Printf
 
-export create_context_and_universe
+export run_polyhedral_model
 
 
 """
-create an ISL basic set representing the domains in kernel
+Run polyhedral model on a kernel. Does the following:
+creates a context and space for ISL
+create an ISL union set representing the domains and instructions in kernel
+create an ISL union map representing dependencies and access relations in kernel
+create a schedule map by intersecting the above
+create an AST from the scheule map
+save C code to out.txt representing the AST
 """
-function create_context_and_universe(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set, ISL.API.isl_ctx}
+function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set, ISL.API.isl_ctx}
     context = ISL.API.isl_ctx_alloc()
     println("GOT CONTEXT")
     # @show domains_isl_rep(kernel)
@@ -27,12 +33,24 @@ function create_context_and_universe(kernel::LoopKernel)#::Tuple{ISL.API.isl_bas
     println("GOT BUILD")
     ast = ISL.API.isl_ast_build_node_from_schedule_map(build, schedule_map)
     println("GOT AST")
-    print(ISL.API.isl_ast_node_dump(ast))
+    ISL.API.isl_ast_node_dump(ast)
+    println("DUMPED NODE")
+    c = ISL.API.isl_ast_node_get_ctx(ast)
+    # p = ISL.API.isl_printer_to_str(c)
+    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
+    # file = fopen("/tmp/test.txt", "w+")
+    p = ISL.API.isl_printer_to_file(c, file)
+    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    q = ISL.API.isl_printer_print_ast_node(p, ast)
+    p = ISL.API.isl_printer_flush(p)
+    # s = ISL.API.isl_printer_get_str(q)
+    # println(Base.unsafe_load(s))
+    println("PRINTED CODE TO out.txt")
 end
 
 
 """
-helper to turn gensyms into strings
+helper to turn gensyms into strings without special characters
 """
 function sym_to_str(s::Symbol)::String
    str = string(s)
@@ -75,9 +93,9 @@ end
 
 
 """
-construct the instructions representation in ISL syntax form
+construct the instructions' domains representation in ISL syntax form
 ex: (id = :mult) C[i, j] += A[i, k] * B[k, j] in matrix multiplication becomes
-{mult[i, j, k] : 0 <= i <= n and 0 <= j <= m and 0 <= k <= r}
+[n, m, r, A, B, C] -> {mult[i, j, k] : 0 <= i <= n and 0 <= j <= m and 0 <= k <= r}
 """
 function instructions_isl_rep(kernel::LoopKernel)::String
     params = string(kernel.args)
@@ -123,24 +141,24 @@ function instructions_isl_rep(kernel::LoopKernel)::String
     if insn_map == "{}"
         insn_map = "{:}"
     end
-    return return @sprintf("%s -> %s", params, insn_map)
+    return @sprintf("%s -> %s", params, insn_map)
 end
 
 
 """
-helpers for extracting accesses from rhs of an expression expr
+helpers for extracting accesses from an expression expr
 """
-function rhs_dependencies(expr::Expr)::Vector{Union{Expr, Symbol}}
+function expr_accesses(expr::Expr)::Vector{Union{Expr, Symbol}}
     deps = []
     if expr.head == :call
         # RHS is operation on multiple terms, add all parts
         for arg in expr.args[2:end]
-            append!(deps, rhs_dependencies(arg))
+            append!(deps, expr_accesses(arg))
         end
     elseif expr.head == :macrocall
         # RHS is macro call on multiple terms, add all parts except macro and line number node
         for arg in expr.args[3:end]
-            append!(deps, rhs_dependencies(arg))
+            append!(deps, expr_accesses(arg))
         end
     else
         push!(deps, expr)
@@ -148,19 +166,24 @@ function rhs_dependencies(expr::Expr)::Vector{Union{Expr, Symbol}}
     return deps
 end
 
-function rhs_dependencies(sym::Symbol)::Vector{Union{Expr, Symbol}}
+function expr_accesses(sym::Symbol)::Vector{Union{Expr, Symbol}}
     return [sym]
 end
 
-function rhs_dependencies(num::Number)::Vector{Union{Expr, Symbol}}
-    return []
+function expr_accesses(num::Number)::Vector{Union{Expr, Symbol}}
+    return [:(num[])]
 end
 
 """
 construct the access relations and dependencies map in ISL syntax form
+
 ex: (id = :mult) C[i, j] += A[i, k] * B[k, j] becomes
-{mult[i, j, k] -> A[k, i];
-mult[i, j, k] -> B[j, k]}
+[n, A, B, C] -> {mult[i, j, k] -> A[k, i] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n;
+mult[i, j, k] -> B[j, k] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n;
+mult[i, j, k] -> C[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
+
+Any dependencies between instructions are also added, such as:
+{mult[i, j, k] -> earlierinst[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
 """
 function dependencies_isl_rep(kernel::LoopKernel)::String
     params = string(kernel.args)
@@ -206,22 +229,58 @@ function dependencies_isl_rep(kernel::LoopKernel)::String
                         deps_map = string(deps_map, "; ")
                     end
                     count += 1
-                    deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ")
-                    # get LHS of instruction
-                    deps_map = string(deps_map, sym_to_str(instruction2.iname), ds2)
+                    deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ", sym_to_str(instruction2.iname), ds2)
+                    # get domains
+                    conditions = ""
+                    ccount = 1
+                    for domain in kernel.domains
+                        if domain.iname in instruction.dependencies || domain.iname in instruction2.dependencies
+                            step = domain.recurrence.args[2]
+                            if ccount != 1
+                                conditions = string(conditions, " and ")
+                            end
+                            ccount += 1
+                            if step != 1
+                                conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                            else
+                                conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                            end
+                        end
+                    end
+                    if conditions != ""
+                        deps_map = string(deps_map, " : ", conditions)
+                    end
                 end
             end
         end
-        rhs = instruction.body.args[2]
-        rhs_parts = rhs_dependencies(rhs)
-        for part in rhs_parts
+        rhs_parts = expr_accesses(instruction.body.args[2])
+        lhs_parts = expr_accesses(instruction.body.args[1])
+        for part in append!(rhs_parts, lhs_parts)
             if count != 1
                 deps_map = string(deps_map, "; ")
             end
             count += 1
-            deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ")
-            # get LHS of instruction
-            deps_map = string(deps_map, part)
+            deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ", part)
+            # get domains
+            conditions = ""
+            ccount = 1
+            for domain in kernel.domains
+                if domain.iname in instruction.dependencies
+                    step = domain.recurrence.args[2]
+                    if ccount != 1
+                        conditions = string(conditions, " and ")
+                    end
+                    ccount += 1
+                    if step != 1
+                        conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                    else
+                        conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                    end
+                end
+            end
+            if conditions != ""
+                deps_map = string(deps_map, " : ", conditions)
+            end
         end
     end
 

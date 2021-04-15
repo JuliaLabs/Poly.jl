@@ -5,6 +5,7 @@ using MacroTools
 
 """
 helpers for evaluating an expression in mod
+will error if symbols are not in global scope
 """
 function eval_ex_in_mod(ex::Expr, mod::Module)::Number
     op = ex.args[1]
@@ -38,14 +39,34 @@ function poly_loop(ex::Expr, mod::Module)::LoopKernel
     end
     if length(space.args) == 3
         # bound : bound
-        lowerbound = eval_ex_in_mod(space.args[2], mod)
-        upperbound = eval_ex_in_mod(space.args[3], mod)
-        recurrence = :($symbol += 1)
+        lowerbound = 0
+        upperbound = 0
+        recurrence = 0
+        try
+            lowerbound = eval_ex_in_mod(space.args[2], mod)
+            upperbound = eval_ex_in_mod(space.args[3], mod)
+            recurrence = :($symbol += 1)
+        catch e
+            # symbols not in global scope
+            lowerbound = space.args[2]
+            upperbound = space.args[3]
+            recurrence = :($symbol += 1)
+        end
     else
         # bound : step : bound
-        lowerbound = eval_ex_in_mod(space.args[2], mod)
-        upperbound = eval_ex_in_mod(space.args[4], mod)
-        recurrence = :($symbol += eval_ex_in_mod(space.args[3], mod))
+        lowerbound = 0
+        upperbound = 0
+        recurrence = 0
+        try
+            lowerbound = eval_ex_in_mod(space.args[2], mod)
+            upperbound = eval_ex_in_mod(space.args[4], mod)
+            recurrence = :($symbol += eval_ex_in_mod(space.args[3], mod))
+        catch e
+            # symbols not in global scope
+            lowerbound = space.args[2]
+            upperbound = space.args[3]
+            recurrence = :($symbol += 1)
+        end
     end
     domains = [Domain(symbol, lowerbound, upperbound, recurrence, Set(), [])]
 
@@ -105,33 +126,24 @@ Example:
 end
 (constructs a matrix multiplication and double)
 
-Options:
-The only option supported is calling_module. Ex:
-@poly_loop calling_module=Main for i = 1:size(out, 1)
-    ...
-This is so that the macro can evaluate loop bounds in the calling module. The default is Main, but if using in another module, specify that module
-
 Notes:
+
 @poly_loop currently requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
+
+Loop bounds must NOT be function calls, UNLESS @poly_loop is in the global scope of a module. In the global scope, function calls will be evalutated in advance. If not in the global scope, expressions can be used like:
+    n = size(out, 1)
+    @poly_loop for i = 1:n ...
 
 Dependencies are inferred by accesses. If a dependency is required that cannot be inferred from variable reads and writes, please use the @depends_on macro to specify a depencence
 
     Example:
     @poly_loop for i = 1:10
-        @depends_on elem=i println("hello world")
+        @depends_on elem=i println("hello world") # otherwise, there is no easy way to tell if this can't be elevated from the loop, and transformation is agressive
     end
 
 """
 macro poly_loop(ex0...)
-    mod = Main
-    if length(ex0) != 1
-        module_ex = ex0[1]
-        if typeof(module_ex) != Expr || module_ex.args[1] != :calling_module
-            error("only supported option is calling_module, got: ", module_ex)
-        end
-        mod = eval(quote $(module_ex.args[2]) end)
-        ex0 = ex0[2:end]
-    end
+    mod = __module__ # get module calling macro
     if length(ex0) != 1
         error("expected only a loop, got: ", length(ex0), "elements")
     end

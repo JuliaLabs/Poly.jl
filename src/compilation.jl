@@ -463,6 +463,8 @@ function compile(kernel::LoopKernel)
     # kernel args
     args = get_kernel_args(kernel)
 
+    # run_polyhedral_model(kernel)
+
     expr = quote
         function $(gensym(:JuLoop))(;$(args...))
             $(body)
@@ -502,7 +504,7 @@ function compile_expr(kernel::LoopKernel)::Expr
     # kernel "args" for isl
     get_kernel_args(kernel)
 
-    create_context_and_universe(kernel)
+    # run_polyhedral_model(kernel)
 
     return expr
 end
