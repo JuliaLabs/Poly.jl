@@ -504,7 +504,7 @@ function compile_expr(kernel::LoopKernel)::Expr
     # kernel "args" for isl
     get_kernel_args(kernel)
 
-    # run_polyhedral_model(kernel)
+    run_polyhedral_model(kernel)
 
     return expr
 end

@@ -61,6 +61,71 @@ end
 
 
 """
+helper to get string rep of params in kernel
+"""
+function get_params_str(kernel::LoopKernel)
+    params = string(kernel.args)
+    params = replace.(params, r":" => "")
+    params = replace.(params, r"Symbol" => "")
+    return params
+end
+
+
+"""
+helper to get the domains related to instruction(s) in the ISL format
+ex: 0 <= i <= n and 0 <= j <= n
+"""
+function get_instructions_domains(instructions::Vector{Instruction}, kernel::LoopKernel)::String
+    conditions = ""
+    count = 1
+    for domain in kernel.domains
+        use = false
+        for instruction in instructions
+            if domain.iname in instruction.dependencies
+                use = true
+            end
+        end
+        if use
+            step = domain.recurrence.args[2]
+            if count != 1
+                conditions = string(conditions, " and ")
+            end
+            count += 1
+            if step != 1
+                conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+            else
+                conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+            end
+        end
+    end
+    return conditions
+end
+
+
+"""
+get the related iteration spaces for an instruction
+ex: [i, j]
+"""
+function get_related_domains(instruction, kernel)
+    count = 1
+    domains = "["
+    for iname in instruction.dependencies
+        for domain in kernel.domains
+            if domain.iname == iname
+                if count != 1
+                    domains = string(domains, ", ")
+                end
+                count += 1
+                domains = string(domains, domain.iname)
+            end
+        end
+    end
+    domains = string(domains, "]")
+    return domains
+end
+
+
+"""
 modify loop domains to be in the ISL syntax form
 ex: i = 1:10 becomes [] -> {[i]: 1 <= i <= 10}
 ex: i = 1:2:n becomes  [n] -> {[i]: exists a: i = 2a and 1 <= i <= n}
@@ -69,24 +134,9 @@ function domains_isl_rep(kernel::LoopKernel)::String
     keys = string([domain.iname for domain in kernel.domains])
     keys = replace.(keys, r":" => "")
 
-    params = string(kernel.args)
-    params = replace.(params, r":" => "")
-    params = replace.(params, r"Symbol" => "")
+    params = get_params_str(kernel)
 
-    conditions = ""
-    count = 1
-    for domain in kernel.domains
-        step = domain.recurrence.args[2]
-        if count != 1
-            conditions = string(conditions, " and ")
-        end
-        count += 1
-        if step != 1
-            conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
-        else
-            conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
-        end
-    end
+    conditions = get_instructions_domains(kernel.instructions, kernel)
 
     return @sprintf("%s -> {%s: %s}", params, keys, conditions)
 end
@@ -98,37 +148,14 @@ ex: (id = :mult) C[i, j] += A[i, k] * B[k, j] in matrix multiplication becomes
 [n, m, r, A, B, C] -> {mult[i, j, k] : 0 <= i <= n and 0 <= j <= m and 0 <= k <= r}
 """
 function instructions_isl_rep(kernel::LoopKernel)::String
-    params = string(kernel.args)
-    params = replace.(params, r":" => "")
-    params = replace.(params, r"Symbol" => "")
+    params = get_params_str(kernel)
 
     insn_map = "{"
     icount = 1
     for instruction in kernel.instructions
         count = 1
-        name = string(sym_to_str(instruction.iname), "[")
-        conditions = ""
-        for iname in instruction.dependencies
-            for domain in kernel.domains
-                if domain.iname == iname
-                    step = domain.recurrence.args[2]
-                    if count != 1
-                        conditions = string(conditions, " and ")
-                        name = string(name, ", ")
-                    end
-                    name = string(name, domain.iname)
-                    lb = domain.lowerbound
-                    ub = domain.upperbound
-                    count += 1
-                    if step != 1
-                        conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(lb), string(domain.iname), string(ub)))
-                    else
-                        conditions = string(conditions, @sprintf("%s <= %s <= %s", string(lb), string(domain.iname), string(ub)))
-                    end
-                end
-            end
-        end
-        name = string(name, "] : ")
+        name = string(sym_to_str(instruction.iname), get_related_domains(instruction, kernel), " : ")
+        conditions = get_instructions_domains([instruction], kernel)
         if conditions != ""
             if icount != 1
                 insn_map = string(insn_map, "; ")
@@ -186,67 +213,23 @@ Any dependencies between instructions are also added, such as:
 {mult[i, j, k] -> earlierinst[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
 """
 function dependencies_isl_rep(kernel::LoopKernel)::String
-    params = string(kernel.args)
-    params = replace.(params, r":" => "")
-    params = replace.(params, r"Symbol" => "")
+    params = get_params_str(kernel)
 
     deps_map = "{"
     count = 1
     for instruction in kernel.instructions
-        dcount = 1
-        ds = "["
-        for iname in instruction.dependencies
-            for domain in kernel.domains
-                if domain.iname == iname
-                    if dcount != 1
-                        ds = string(ds, ", ")
-                    end
-                    dcount += 1
-                    ds = string(ds, domain.iname)
-                end
-            end
-        end
-        ds = string(ds, "] ")
-        dcount = 1
+        ds = get_related_domains(instruction, kernel)
         for iname in instruction.dependencies
             for instruction2 in kernel.instructions
                 if instruction2.iname == iname
-                    dcount = 1
-                    ds2 = "["
-                    for iname2 in instruction2.dependencies
-                        for domain in kernel.domains
-                            if domain.iname == iname2
-                                if dcount != 1
-                                    ds2 = string(ds2, ", ")
-                                end
-                                dcount += 1
-                                ds2 = string(ds2, domain.iname)
-                            end
-                        end
-                    end
-                    ds2 = string(ds2, "]")
+                    ds2 = get_related_domains(instruction2, kernel)
                     if count != 1
                         deps_map = string(deps_map, "; ")
                     end
                     count += 1
                     deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ", sym_to_str(instruction2.iname), ds2)
                     # get domains
-                    conditions = ""
-                    ccount = 1
-                    for domain in kernel.domains
-                        if domain.iname in instruction.dependencies || domain.iname in instruction2.dependencies
-                            step = domain.recurrence.args[2]
-                            if ccount != 1
-                                conditions = string(conditions, " and ")
-                            end
-                            ccount += 1
-                            if step != 1
-                                conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
-                            else
-                                conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
-                            end
-                        end
-                    end
+                    conditions = get_instructions_domains([instruction, instruction2], kernel)
                     if conditions != ""
                         deps_map = string(deps_map, " : ", conditions)
                     end
@@ -262,22 +245,7 @@ function dependencies_isl_rep(kernel::LoopKernel)::String
             count += 1
             deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ", part)
             # get domains
-            conditions = ""
-            ccount = 1
-            for domain in kernel.domains
-                if domain.iname in instruction.dependencies
-                    step = domain.recurrence.args[2]
-                    if ccount != 1
-                        conditions = string(conditions, " and ")
-                    end
-                    ccount += 1
-                    if step != 1
-                        conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
-                    else
-                        conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
-                    end
-                end
-            end
+            conditions = get_instructions_domains([instruction], kernel)
             if conditions != ""
                 deps_map = string(deps_map, " : ", conditions)
             end
