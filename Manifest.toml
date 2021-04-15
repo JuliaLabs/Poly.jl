@@ -31,7 +31,9 @@ version = "6.1.2+6"
 
 [[ISL]]
 deps = ["CEnum", "ISL_jll"]
-path = "/Users/mjulian/.julia/dev/ISL"
+git-tree-sha1 = "a50922a057940a83badc5f676743ebf39105177e"
+repo-rev = "main"
+repo-url = "https://github.com/JuliaLabs/ISL.jl"
 uuid = "4d9053e4-97a6-4476-8996-fca684647641"
 version = "0.1.0"
 
