@@ -196,6 +196,58 @@ end
 
 
 """
+topologically sort the AST into a partial order of instructions
+modifies ast
+items in lists can run in any order
+ex: [1, 2, [3, 4, 5], 6] describes that 3, 4, and 5 can be in any order
+"""
+function topological_sort_partial_order(ast::AST)::Vector{Union{Domain, Instruction, Vector}}
+    order = Union{Domain, Instruction, Vector}[]
+    temp_order = Union{Domain, Instruction, Vector}[]
+    sources = AST[head for head in ast.children]
+    second_sources = AST[]
+
+    while !isempty(sources) || !isempty(second_sources)
+        if isempty(sources)
+            # add all in second_sources to sources
+            append!(sources, second_sources)
+            # clear second sources
+            second_sources = AST[]
+            # add temp_order to order
+            if length(temp_order) == 1
+                push!(order, temp_order[1])
+            else
+                # push as sub list
+                push!(order, temp_order)
+            end
+            # clear temp_order
+            temp_order = Union{Domain, Instruction, Vector}[]
+        end
+        # pop first to preserve original order if no dependencies
+        n = popfirst!(sources)
+        push!(temp_order, n.self)
+        while !isempty(n.children)
+            child = popfirst!(n.children)
+            filter!(e->e != n, child.parents)
+            # child has no more dependencies
+            if isempty(child.parents)
+                push!(second_sources, child)
+            end
+        end
+    end
+
+    if length(temp_order) == 1
+        push!(order, temp_order[1])
+    elseif length(temp_order) > 1
+        # push as sub list
+        push!(order, temp_order)
+    end
+
+    return order
+end
+
+
+"""
 check if domains share instructions, and return those instructions
 """
 function domains_shared_inst(domain1::Domain, domain2::Domain)::Vector{Union{Instruction, Domain}}
@@ -492,6 +544,8 @@ compile native julia code given a kernel to an expression
 function compile_expr(kernel::LoopKernel)::Expr
     ast = construct_ast(kernel)
     order = topological_sort_order(ast)
+    # ast = construct_ast(kernel)
+    # order2 = topological_sort_partial_order(ast)
     order = nest_loops(kernel, order)
 
     # for i in order
@@ -504,7 +558,7 @@ function compile_expr(kernel::LoopKernel)::Expr
     # kernel "args" for isl
     get_kernel_args(kernel)
 
-    run_polyhedral_model(kernel)
+    # run_polyhedral_model(kernel)
 
     return expr
 end
