@@ -16,14 +16,18 @@ create an AST from the scheule map
 save C code to out.txt representing the AST
 """
 function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set, ISL.API.isl_ctx}
+    # init
     context = ISL.API.isl_ctx_alloc()
     println("GOT CONTEXT")
-    # @show domains_isl_rep(kernel)
     space = ISL.API.isl_set_read_from_str(context, "{:}")
     println("GOT SPACE")
+
+    # domain
     @show instructions_isl_rep(kernel)
     instructions = ISL.API.isl_union_set_read_from_str(context, instructions_isl_rep(kernel))
     println("GOT INSTS")
+
+    # access patterns
     may_read, may_write, must_write = accesses_isl_rep(kernel)
     @show may_read
     @show may_write
@@ -31,32 +35,83 @@ function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set,
     may_read = ISL.API.isl_union_map_read_from_str(context, may_read)
     may_write = ISL.API.isl_union_map_read_from_str(context, may_write)
     must_write = ISL.API.isl_union_map_read_from_str(context, must_write)
-    access = ISL.API.isl_union_access_info_from_sink(may_read)
-    access = ISL.API.isl_union_access_info_set_may_source(access, may_write)
-    access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
-    println("GOT ACCESSES")
+    println("GOT ACCESS PATTERNS")
+
+    # original schedule
     schedule = schedule_isl_rep(kernel)
-    schedule = "[A, B, out] -> {out253[j, k, i] -> [0, i, j, k] : 1 <= i <= 10 and 1 <= j <= 10 and 1 <= k <= 10; out254[j, i] -> [1, i, j] : 1 <= i <= 10 and 1 <= j <= 10}"
+    # schedule = "[A, B, out] -> {out253[j, k, i] -> [i, j, 0, k, 0] : 1 <= i <= 10 and 1 <= j <= 10 and 1 <= k <= 10; out254[j, i] -> [i, j, 1, 0, 0] : 1 <= i <= 10 and 1 <= j <= 10}"
     @show schedule
     schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
     ISL.API.isl_union_map_dump(schedule)
     println("DUMPED SCHEDULE")
+
+    # read after write deps
+    access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_read))
+    access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_write))
+    access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
     access = ISL.API.isl_union_access_info_set_schedule_map(access, ISL.API.isl_union_map_copy(schedule))
-    println("SET SCHEDULE")
+    println("SET ACCESS RAW")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
-    println("GOT FLOW")
-    # read after write deps only
-    dependencies = ISL.API.isl_union_flow_get_may_dependence(flow)
-    println("GOT DEPS")
-    ISL.API.isl_union_map_dump(dependencies)
+    println("GOT FLOW RAW")
+    raw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
+    println("GOT DEPS RAW")
+    ISL.API.isl_union_map_dump(raw_deps)
     println("DUMPED read-after-write DEPS")
     build = ISL.API.isl_ast_build_from_context(space)
     println("GOT BUILD")
-    # TODO: use deps to construct new schedule
-    ast = ISL.API.isl_ast_build_node_from_schedule_map(build, schedule)
+
+    # write after read deps
+    access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
+    access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_read))
+    access = ISL.API.isl_union_access_info_set_schedule_map(access, ISL.API.isl_union_map_copy(schedule))
+    println("SET ACCESS WAR")
+    flow = ISL.API.isl_union_access_info_compute_flow(access)
+    println("GOT FLOW WAR")
+    war_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
+    println("GOT DEPS WAR")
+    ISL.API.isl_union_map_dump(war_deps)
+    println("DUMPED write-after-read DEPS")
+
+    # write after write deps
+    access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
+    access = ISL.API.isl_union_access_info_set_may_source(access, may_write)
+    access = ISL.API.isl_union_access_info_set_schedule_map(access, schedule)
+    println("SET ACCESS WAW")
+    flow = ISL.API.isl_union_access_info_compute_flow(access)
+    println("GOT FLOW WAW")
+    waw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
+    println("GOT DEPS WAW")
+    ISL.API.isl_union_map_dump(waw_deps)
+    println("DUMPED write-after-write DEPS")
+
+    # use deps to construct new schedule
+    all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
+    all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
+    ISL.API.isl_union_map_dump(all_deps)
+    println("DUMPED all DEPS")
+    schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, all_deps)
+    schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
+
+    # print schedule
+    c = ISL.API.isl_schedule_get_ctx(schedule)
+    p = ISL.API.isl_printer_to_str(c)
+    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "sched.txt", "w+")
+    # file = fopen("/tmp/test.txt", "w+")
+    p = ISL.API.isl_printer_to_file(c, file)
+    q = ISL.API.isl_printer_print_schedule(p, schedule)
+    p = ISL.API.isl_printer_flush(p)
+    println("PRINTED SCHEDULE TO sched.txt")
+
+    # construct AST from new schedule
+    build = ISL.API.isl_ast_build_from_context(space)
+    println("GOT BUILD")
+    ast = ISL.API.isl_ast_build_node_from_schedule(build, schedule)
     println("GOT AST")
     ISL.API.isl_ast_node_dump(ast)
     println("DUMPED AST")
+
+    # dump ast to file in C code
     c = ISL.API.isl_ast_node_get_ctx(ast)
     p = ISL.API.isl_printer_to_str(c)
     file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
@@ -293,30 +348,50 @@ end
 """
 construct the original schedule of a kernel in ISL representation
 format:
-"[params] -> {inst1[i] -> [i, 0] : 0 <= i < n; inst2[i] -> [i, 1] : 0 <= i < n}"
+[params] -> {inst1[i] -> [i, 0] : 0 <= i < n; inst2[i] -> [i, 1] : 0 <= i < n}
+or:
+[A, B, out] -> {out253[j, k, i] -> [i, 0, j, 0, k, 0] : 1 <= i <= 10 and 1 <= j <= 10 and 1 <= k <= 10; out254[j, i] -> [i, 1, j, 1, 0, 0] : 1 <= i <= 10 and 1 <= j <= 10}
 """
 function schedule_isl_rep(kernel::LoopKernel)::String
     params = get_params_str(kernel)
 
     schedule = string(params, " -> {")
+    domains_count = [0 for domain in kernel.domains]
     count = 0
-    for domain in kernel.domains
+    for instruction in kernel.instructions
         icount = 0
-        # instructions are ordered by original specification, so are added in order to domain
-        for instruction in kernel.instructions
-            ds = get_related_domains(instruction, kernel)
-            conditions = get_instructions_domains([instruction], kernel)
+        ds = get_related_domains(instruction, kernel)
+        conditions = get_instructions_domains([instruction], kernel)
+        iters = "["
+        # instructions are ordered by original specification
+        for (i, domain) in enumerate(kernel.domains)
+            found = false
             for iname in instruction.dependencies
                 if domain.iname == iname
-                    if count != 0
-                        schedule = string(schedule, "; ")
+                    if icount != 0
+                        iters = string(iters, ", ")
                     end
-                    count += 1
-                    schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> [", iname, ", ", icount, "] : ", conditions)
                     icount += 1
+                    iters = string(iters, domain.iname, ", ", domains_count[i])
+                    domains_count[i] += 1
+                    found = true
                 end
             end
+            if !found
+                if icount != 0
+                    iters = string(iters, ", ")
+                end
+                icount += 1
+                iters = string(iters, 0, ", ", 0)
+            end
         end
+        iters = string(iters, "]")
+
+        if count != 0
+            schedule = string(schedule, ";")
+        end
+        count += 1
+        schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> ", iters, " : ", conditions)
     end
 
     schedule = string(schedule, "}")
