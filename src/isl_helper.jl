@@ -24,19 +24,41 @@ function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set,
     @show instructions_isl_rep(kernel)
     instructions = ISL.API.isl_union_set_read_from_str(context, instructions_isl_rep(kernel))
     println("GOT INSTS")
-    @show dependencies_isl_rep(kernel)
-    dependencies = ISL.API.isl_union_map_read_from_str(context, dependencies_isl_rep(kernel))
+    may_read, may_write, must_write = accesses_isl_rep(kernel)
+    @show may_read
+    @show may_write
+    @show must_write
+    may_read = ISL.API.isl_union_map_read_from_str(context, may_read)
+    may_write = ISL.API.isl_union_map_read_from_str(context, may_write)
+    must_write = ISL.API.isl_union_map_read_from_str(context, must_write)
+    access = ISL.API.isl_union_access_info_from_sink(may_read)
+    access = ISL.API.isl_union_access_info_set_may_source(access, may_write)
+    access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
+    println("GOT ACCESSES")
+    schedule = schedule_isl_rep(kernel)
+    schedule = "[A, B, out] -> {out253[j, k, i] -> [0, i, j, k] : 1 <= i <= 10 and 1 <= j <= 10 and 1 <= k <= 10; out254[j, i] -> [1, i, j] : 1 <= i <= 10 and 1 <= j <= 10}"
+    @show schedule
+    schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
+    ISL.API.isl_union_map_dump(schedule)
+    println("DUMPED SCHEDULE")
+    access = ISL.API.isl_union_access_info_set_schedule_map(access, ISL.API.isl_union_map_copy(schedule))
+    println("SET SCHEDULE")
+    flow = ISL.API.isl_union_access_info_compute_flow(access)
+    println("GOT FLOW")
+    # read after write deps only
+    dependencies = ISL.API.isl_union_flow_get_may_dependence(flow)
     println("GOT DEPS")
-    schedule_map = ISL.API.isl_union_map_intersect_domain(dependencies, instructions)
-    println("GOT MAP")
+    ISL.API.isl_union_map_dump(dependencies)
+    println("DUMPED read-after-write DEPS")
     build = ISL.API.isl_ast_build_from_context(space)
     println("GOT BUILD")
-    ast = ISL.API.isl_ast_build_node_from_schedule_map(build, schedule_map)
+    # TODO: use deps to construct new schedule
+    ast = ISL.API.isl_ast_build_node_from_schedule_map(build, schedule)
     println("GOT AST")
     ISL.API.isl_ast_node_dump(ast)
-    println("DUMPED NODE")
+    println("DUMPED AST")
     c = ISL.API.isl_ast_node_get_ctx(ast)
-    # p = ISL.API.isl_printer_to_str(c)
+    p = ISL.API.isl_printer_to_str(c)
     file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
     # file = fopen("/tmp/test.txt", "w+")
     p = ISL.API.isl_printer_to_file(c, file)
@@ -202,17 +224,111 @@ function expr_accesses(num::Number)::Vector{Union{Expr, Symbol}}
 end
 
 """
-construct the access relations and dependencies map in ISL syntax form
+construct the access relations map in ISL syntax form
 
 ex: (id = :mult) C[i, j] += A[i, k] * B[k, j] becomes
-[n, A, B, C] -> {mult[i, j, k] -> A[k, i] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n;
-mult[i, j, k] -> B[j, k] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n;
-mult[i, j, k] -> C[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
-
-Any dependencies between instructions are also added, such as:
-{mult[i, j, k] -> earlierinst[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
+may_read:
+[n, A, B, C] -> {
+mult[i, j, k] -> A[k, i] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n;
+mult[i, j, k] -> B[j, k] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
+may_write:
+[n, A, B, C] -> {mult[i, j, k] -> C[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
+must_write:
+[n, A, B, C] -> {mult[i, j, k] -> C[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
 """
-function dependencies_isl_rep(kernel::LoopKernel)::String
+function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String, String}
+    params = get_params_str(kernel)
+
+    may_read = string(params, " -> {")
+    may_write = string(params, " -> {")
+    must_write = string(params, " -> {")
+    rcount = 1
+    wcount = 1
+    mcount = 1
+    for instruction in kernel.instructions
+        ds = get_related_domains(instruction, kernel)
+        rhs_parts = expr_accesses(instruction.body.args[2])
+        lhs_parts = expr_accesses(instruction.body.args[1])
+        # must writes in LHS
+        for part in lhs_parts
+            if mcount != 1
+                must_write = string(must_write, "; ")
+            end
+            mcount += 1
+            must_write = string(must_write, sym_to_str(instruction.iname), ds, " -> ", part)
+            # get domains
+            conditions = get_instructions_domains([instruction], kernel)
+            if conditions != ""
+                must_write = string(must_write, " : ", conditions)
+            end
+        end
+        # may reads in RHS and LHS
+        for part in append!(rhs_parts, lhs_parts)
+            if rcount != 1
+                may_read = string(may_read, "; ")
+            end
+            rcount += 1
+            may_read = string(may_read, sym_to_str(instruction.iname), ds, " -> ", part)
+            # get domains
+            conditions = get_instructions_domains([instruction], kernel)
+            if conditions != ""
+                may_read = string(may_read, " : ", conditions)
+            end
+        end
+    end
+
+    may_read = string(may_read, "}")
+    if may_read == "{}"
+        may_read = "{:}"
+    end
+    must_write = string(must_write, "}")
+    if must_write == "{}"
+        must_write = "{:}"
+    end
+    may_write = must_write
+    return may_read, may_write, must_write
+end
+
+
+"""
+construct the original schedule of a kernel in ISL representation
+format:
+"[params] -> {inst1[i] -> [i, 0] : 0 <= i < n; inst2[i] -> [i, 1] : 0 <= i < n}"
+"""
+function schedule_isl_rep(kernel::LoopKernel)::String
+    params = get_params_str(kernel)
+
+    schedule = string(params, " -> {")
+    count = 0
+    for domain in kernel.domains
+        icount = 0
+        # instructions are ordered by original specification, so are added in order to domain
+        for instruction in kernel.instructions
+            ds = get_related_domains(instruction, kernel)
+            conditions = get_instructions_domains([instruction], kernel)
+            for iname in instruction.dependencies
+                if domain.iname == iname
+                    if count != 0
+                        schedule = string(schedule, "; ")
+                    end
+                    count += 1
+                    schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> [", iname, ", ", icount, "] : ", conditions)
+                    icount += 1
+                end
+            end
+        end
+    end
+
+    schedule = string(schedule, "}")
+    return schedule
+end
+
+
+"""
+OLD
+map rep of dependencies
+"""
+function deps_map(kernel::LoopKernel)::String
     params = get_params_str(kernel)
 
     deps_map = "{"
@@ -236,25 +352,8 @@ function dependencies_isl_rep(kernel::LoopKernel)::String
                 end
             end
         end
-        rhs_parts = expr_accesses(instruction.body.args[2])
-        lhs_parts = expr_accesses(instruction.body.args[1])
-        for part in append!(rhs_parts, lhs_parts)
-            if count != 1
-                deps_map = string(deps_map, "; ")
-            end
-            count += 1
-            deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ", part)
-            # get domains
-            conditions = get_instructions_domains([instruction], kernel)
-            if conditions != ""
-                deps_map = string(deps_map, " : ", conditions)
-            end
-        end
     end
 
-    deps_map = string(deps_map, "}")
-    if deps_map == "{}"
-        deps_map = "{:}"
-    end
     return @sprintf("%s -> %s", params, deps_map)
+
 end
