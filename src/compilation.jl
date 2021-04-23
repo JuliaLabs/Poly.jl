@@ -458,6 +458,42 @@ function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
     return args
 end
 
+"""
+determine all constants in kernel
+"""
+function set_kernel_consts(kernel::LoopKernel)
+    const_symbols = Set{Symbol}()
+
+    # get all symbols in loop bounds (since must be constant)
+    for domain in kernel.domains
+        if typeof(domain.lowerbound) == Symbol
+            push!(const_symbols, domain.lowerbound)
+        elseif typeof(domain.lowerbound) == Expr
+            for arg in domain.lowerbound.args[2:end]
+                if typeof(arg) == Symbol
+                    push!(const_symbols, arg)
+                end
+            end
+        end
+
+        if typeof(domain.upperbound) == Symbol
+            push!(const_symbols, domain.upperbound)
+        elseif typeof(domain.upperbound) == Expr
+            for arg in domain.upperbound.args[2:end]
+                if typeof(arg) == Symbol
+                    push!(const_symbols, arg)
+                end
+            end
+        end
+
+        step = domain.recurrence.args[2]
+        if typeof(step) == Symbol
+            push!(const_symbols, step)
+        end
+    end
+
+    append!(kernel.consts, const_symbols)
+end
 
 """
 CONSTRUCTION FUNCTIONS
@@ -505,17 +541,19 @@ COMPILATION
 compile native julia code given a kernel
 """
 function compile(kernel::LoopKernel)
-    ast = construct_ast(kernel)
-    order = topological_sort_order(ast)
-    order = nest_loops(kernel, order)
-
-    # construct from order
-    body = construct(order)
+    add_loop_deps(kernel)
+    # ast = construct_ast(kernel)
+    # order = topological_sort_order(ast)
+    # order = nest_loops(kernel, order)
+    #
+    # # construct from order
+    # body = construct(order)
 
     # kernel args
     args = get_kernel_args(kernel)
+    set_kernel_consts(kernel)
 
-    # run_polyhedral_model(kernel)
+    body = run_polyhedral_model(kernel)
 
     expr = quote
         function $(gensym(:JuLoop))(;$(args...))
@@ -542,23 +580,25 @@ end
 compile native julia code given a kernel to an expression
 """
 function compile_expr(kernel::LoopKernel)::Expr
-    ast = construct_ast(kernel)
-    order = topological_sort_order(ast)
+    add_loop_deps(kernel)
     # ast = construct_ast(kernel)
-    # order2 = topological_sort_partial_order(ast)
-    order = nest_loops(kernel, order)
-
-    # for i in order
-    #     printall(i)
-    # end
-
-    # construct from order
-    expr = construct(order)
+    # order = topological_sort_order(ast)
+    # # ast = construct_ast(kernel)
+    # # order2 = topological_sort_partial_order(ast)
+    # order = nest_loops(kernel, order)
+    #
+    # # for i in order
+    # #     printall(i)
+    # # end
+    #
+    # # construct from order
+    # expr = construct(order)
 
     # kernel "args" for isl
     get_kernel_args(kernel)
+    set_kernel_consts(kernel)
 
-    run_polyhedral_model(kernel)
+    expr = run_polyhedral_model(kernel)
 
     return expr
 end

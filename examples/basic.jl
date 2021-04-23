@@ -9,7 +9,7 @@ domains = [Domain(:i, 1, :(size(out, 1)), :(i += 1), Set(), []),
            Domain(:k, 1, :(size(A, 2)), :(k += 1), Set(), [])]
 
 
-kern = compile(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}]))
+kern = compile(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}], []))
 
 A = rand(10, 10)
 B = rand(10, 10)
@@ -28,7 +28,7 @@ domains = [Domain(:i, 1, :(size(out, 1)), :(i += 1), Set(), []),
            Domain(:j, 1, :(size(out, 2)), :(j += 1), Set(), [])]
 
 
-kern = compile(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}]))
+kern = compile(LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}], []))
 
 A = rand(10, 10)
 B = rand(10, 10)

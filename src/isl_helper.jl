@@ -10,12 +10,15 @@ export run_polyhedral_model
 Run polyhedral model on a kernel. Does the following:
 creates a context and space for ISL
 create an ISL union set representing the domains and instructions in kernel
-create an ISL union map representing dependencies and access relations in kernel
-create a schedule map by intersecting the above
-create an AST from the scheule map
-save C code to out.txt representing the AST
+create an ISL union maps representing access relations in kernel
+create an ISL schedule from intial implementation
+create dependencies maps by analyzing the accesses and schedule
+create a new schedule from all dependencies
+create an AST from the schedule
+parse AST to julia code
+return expression
 """
-function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set, ISL.API.isl_ctx}
+function run_polyhedral_model(kernel::LoopKernel)::Expr
     # init
     context = ISL.API.isl_ctx_alloc()
     println("GOT CONTEXT")
@@ -39,7 +42,6 @@ function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set,
 
     # original schedule
     schedule = schedule_isl_rep(kernel)
-    # schedule = "[A, B, out] -> {out253[j, k, i] -> [i, j, 0, k, 0] : 1 <= i <= 10 and 1 <= j <= 10 and 1 <= k <= 10; out254[j, i] -> [i, j, 1, 0, 0] : 1 <= i <= 10 and 1 <= j <= 10}"
     @show schedule
     schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
     ISL.API.isl_union_map_dump(schedule)
@@ -84,14 +86,20 @@ function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set,
     ISL.API.isl_union_map_dump(waw_deps)
     println("DUMPED write-after-write DEPS")
 
-    # use deps to construct new schedule
+    # use deps to construct new schedule validity constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
     all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
     ISL.API.isl_union_map_dump(all_deps)
     println("DUMPED all DEPS")
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
     schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, all_deps)
+
+    # proximity constraints
+
+    # compute schedule
     schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
+
+    # other modifications to schedule
 
     # print schedule
     c = ISL.API.isl_schedule_get_ctx(schedule)
@@ -122,7 +130,12 @@ function run_polyhedral_model(kernel::LoopKernel)#::Tuple{ISL.API.isl_basic_set,
     p = ISL.API.isl_printer_flush(p)
     # s = ISL.API.isl_printer_get_str(q)
     # println(Base.unsafe_load(s))
-    println("PRINTED CODE TO out.txt")
+    println("PRINTED C CODE TO out.txt")
+
+    # parse ast to Julia code
+    expr = parse_ast(ast, kernel)
+    @show expr
+    return expr
 end
 
 
@@ -141,7 +154,7 @@ end
 helper to get string rep of params in kernel
 """
 function get_params_str(kernel::LoopKernel)
-    params = string(kernel.args)
+    params = string(kernel.consts)
     params = replace.(params, r":" => "")
     params = replace.(params, r"Symbol" => "")
     return params
@@ -169,7 +182,7 @@ function get_instructions_domains(instructions::Vector{Instruction}, kernel::Loo
             end
             count += 1
             if step != 1
-                conditions = string(conditions, @sprintf("exists (a: %s = %da and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                conditions = string(conditions, @sprintf("exists (a: %s = %d*a and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             else
                 conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             end
@@ -252,17 +265,17 @@ end
 """
 helpers for extracting accesses from an expression expr
 """
-function expr_accesses(expr::Expr)::Vector{Union{Expr, Symbol}}
+function expr_accesses(expr::Expr, kernel::LoopKernel)::Vector{Union{Expr, Symbol}}
     deps = []
     if expr.head == :call
         # RHS is operation on multiple terms, add all parts
         for arg in expr.args[2:end]
-            append!(deps, expr_accesses(arg))
+            append!(deps, expr_accesses(arg, kernel))
         end
     elseif expr.head == :macrocall
         # RHS is macro call on multiple terms, add all parts except macro and line number node
         for arg in expr.args[3:end]
-            append!(deps, expr_accesses(arg))
+            append!(deps, expr_accesses(arg, kernel))
         end
     else
         push!(deps, expr)
@@ -270,12 +283,18 @@ function expr_accesses(expr::Expr)::Vector{Union{Expr, Symbol}}
     return deps
 end
 
-function expr_accesses(sym::Symbol)::Vector{Union{Expr, Symbol}}
-    return [sym]
+function expr_accesses(sym::Symbol, kernel::LoopKernel)::Vector{Union{Expr, Symbol}}
+    if sym in kernel.consts
+        return []
+    end
+    if sym in [d.iname for d in kernel.domains]
+        return []
+    end
+    return [:($sym[])]
 end
 
-function expr_accesses(num::Number)::Vector{Union{Expr, Symbol}}
-    return [:(num[])]
+function expr_accesses(num::Number, kernel::LoopKernel)::Vector{Union{Expr, Symbol}}
+    return []
 end
 
 """
@@ -302,8 +321,8 @@ function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String, String}
     mcount = 1
     for instruction in kernel.instructions
         ds = get_related_domains(instruction, kernel)
-        rhs_parts = expr_accesses(instruction.body.args[2])
-        lhs_parts = expr_accesses(instruction.body.args[1])
+        rhs_parts = expr_accesses(instruction.body.args[2], kernel)
+        lhs_parts = expr_accesses(instruction.body.args[1], kernel)
         # must writes in LHS
         for part in lhs_parts
             if mcount != 1
@@ -396,6 +415,229 @@ function schedule_isl_rep(kernel::LoopKernel)::String
 
     schedule = string(schedule, "}")
     return schedule
+end
+
+
+"""
+parse an isl AST back into julia code
+"""
+function parse_ast(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+    node_type = ISL.API.isl_ast_node_get_type(ast)
+
+    if node_type == ISL.API.isl_ast_node_for
+        # for loop
+        expr = parse_ast_for(ast, kernel)
+
+    elseif node_type == ISL.API.isl_ast_node_if
+        # if statement
+        expr = parse_ast_if(ast, kernel)
+
+    elseif node_type == ISL.API.isl_ast_node_block
+        # compound node- multiple elements in block
+        expr = parse_ast_block(ast, kernel)
+
+    elseif node_type == ISL.API.isl_ast_node_mark
+        # mark in the ast- comment
+
+    elseif node_type == ISL.API.isl_ast_node_user
+        # expression statement
+        expr = parse_ast_user(ast, kernel)
+
+    elseif node_type == ISL.API.isl_ast_node_error
+        # error- quit
+
+    end
+end
+
+
+"""
+parse an ast node representing a for loop into an expression
+"""
+function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+    executes_once = ISL.API.isl_ast_node_for_is_degenerate(ast) # if loop executes only once
+
+    # loop qualities
+    iter = ISL.API.isl_ast_node_for_get_iterator(ast)
+    id = ISL.API.isl_ast_expr_get_id(iter) # id of iterator
+    ISL.API.isl_id_free(id)
+    name = Base.unsafe_convert(Ptr{Cchar}, ISL.API.isl_id_get_name(id))
+    name = Symbol(Base.unsafe_string(name)) # iterator symbol
+    init = parse_ast_expr(ISL.API.isl_ast_node_for_get_init(ast)) # initial condition
+    body = parse_ast(ISL.API.isl_ast_node_for_get_body(ast), kernel) # body of loop
+
+    if executes_once == ISL.API.isl_bool_true
+        # loop only runs once, just set name = init and run body
+        expr = quote
+            let $name = $init
+                $body
+            end
+        end
+        return expr
+    else
+        inc = parse_ast_expr(ISL.API.isl_ast_node_for_get_inc(ast)) # incremental step
+        cond = parse_ast_expr(ISL.API.isl_ast_node_for_get_cond(ast)) # final condition
+
+        # let name = init
+            # while cond
+                # body
+                # name += inc
+            # end
+        # end
+        expr = quote
+            let $name = $init
+                while $cond
+                    $body
+                    $name += $inc
+                end
+            end
+        end
+        return expr
+    end
+end
+
+
+"""
+parse an ast node representing an if block into an expression
+"""
+function parse_ast_if(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+    cond = ISL.API.isl_ast_node_if_get_cond(ast)
+    cond = parse_ast_expr(cond)
+    if_body = ISL.API.isl_ast_node_if_get_then(ast)
+    if_body = parse_ast(if_body, kernel)
+    has_else = ISL.API.isl_ast_node_if_has_else(ast)
+    if has_else == ISL.API.isl_bool_true
+        # if cond
+            # if_body
+        # else
+            # else_body
+        # end
+        else_body = ISL.API.isl_ast_node_if_get_else(ast)
+        else_body = parse_ast(else_body, kernel)
+        expr = quote
+            if $cond
+                $if_body
+            else
+                $else_body
+            end
+        end
+        return expr
+    else
+        # if cond
+            # if_body
+        # end
+        expr = quote
+            if $cond
+                $if_body
+            end
+        end
+        return expr
+    end
+end
+
+
+"""
+parse an ast node representing a block into an expression
+"""
+function parse_ast_block(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+    children = ISL.API.isl_ast_node_block_get_children(ast)
+    n = ISL.API.isl_ast_node_list_n_ast_node(children)
+    exs = []
+    for i=0:n-1
+        child = ISL.API.isl_ast_node_list_get_at(children, i)
+        push!(exs, parse_ast(child, kernel))
+    end
+    return quote $(exs...) end
+end
+
+
+"""
+parse an ast node representing an expression
+"""
+function parse_ast_user(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+    expr = ISL.API.isl_ast_node_user_get_expr(ast)
+    ISL.API.isl_ast_expr_free(expr)
+    first_expr = ISL.API.isl_ast_expr_op_get_arg(expr, 0) # first arg is "function" name (symbol cooresponding to instruction)
+    id = ISL.API.isl_ast_expr_id_get_id(first_expr)
+    ISL.API.isl_ast_expr_free(first_expr)
+    name = Base.unsafe_convert(Ptr{Cchar}, ISL.API.isl_id_get_name(id)) # name of identifier
+    name = Base.unsafe_string(name)
+    ISL.API.isl_id_free(id)
+
+    # search for matching instruction
+    for instruction in kernel.instructions
+        if sym_to_str(instruction.iname) == name
+            # found instruction
+            return instruction.body
+        end
+    end
+
+    return :()
+end
+
+
+"""
+parse an ast expression condition
+"""
+function parse_ast_expr(expr::Ptr{ISL.API.isl_ast_expr})::Union{Symbol, Expr, Number}
+    type = ISL.API.isl_ast_expr_get_type(expr)
+    if type == ISL.API.isl_ast_expr_id
+        id = ISL.API.isl_ast_expr_id_get_id(expr)
+        name = Base.unsafe_convert(Ptr{Cchar}, ISL.API.isl_id_get_name(id)) # name of identifier
+        name = Base.unsafe_string(name)
+        ISL.API.isl_id_free(id)
+        return :($(Symbol(name)))
+    elseif type == ISL.API.isl_ast_expr_int
+        val = ISL.API.isl_ast_expr_int_get_val(expr)
+        num = ISL.API.isl_val_get_d(val)
+        ISL.API.isl_val_free(val)
+        return :($num)
+    else
+        if ISL.API.isl_ast_expr_get_op_n_arg(expr) == 1
+            arg1 = parse_ast_expr(ISL.API.isl_ast_expr_op_get_arg(expr, 0))
+            arg2 = :()
+        else
+            arg1 = parse_ast_expr(ISL.API.isl_ast_expr_op_get_arg(expr, 0))
+            arg2 = parse_ast_expr(ISL.API.isl_ast_expr_op_get_arg(expr, 1))
+        end
+
+        op_type = ISL.API.isl_ast_expr_op_get_type(expr)
+        if op_type == ISL.API.isl_ast_expr_op_and || op_type == ISL.API.isl_ast_expr_op_and_then
+            return :($arg1 && $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_or || op_type == ISL.API.isl_ast_expr_op_or_else
+            return :($arg1 || $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_max
+            return :(max($arg1, $arg2))
+        elseif op_type == ISL.API.isl_ast_expr_op_min
+            return :(min($arg1, $arg2))
+        elseif op_type == ISL.API.isl_ast_expr_op_minus
+            return :(-$arg1)
+        elseif op_type == ISL.API.isl_ast_expr_op_add
+            return :($arg1 + $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_sub
+            return :($arg1 - $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_mul
+            return :($arg1 * $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_fdiv_q
+            return :(floor($arg1 / $arg2))
+        elseif op_type == ISL.API.isl_ast_expr_op_pdiv_q || op_type == ISL.API.isl_ast_expr_op_div
+            return :($arg1 / $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_pdiv_r || op_type == ISL.API.isl_ast_expr_op_zdiv_r
+            return :($arg1 % $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_eq
+            return :($arg1 == $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_le
+            return :($arg1 <= $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_ge
+            return :($arg1 >= $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_lt
+            return :($arg1 < $arg2)
+        elseif op_type == ISL.API.isl_ast_expr_op_gt
+            return :($arg1 > $arg2)
+        else
+            # invalid
+            return :()
+        end
+    end
 end
 
 

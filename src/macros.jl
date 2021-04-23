@@ -107,7 +107,7 @@ function poly_loop(ex::Expr, mod::Module)::LoopKernel
         end
     end
 
-    kern = LoopKernel(instructions, domains, [], [])
+    kern = LoopKernel(instructions, domains, [], [], [])
     return kern
 end
 

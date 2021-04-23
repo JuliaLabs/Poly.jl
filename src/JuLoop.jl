@@ -40,8 +40,8 @@ Example Domain:
 """
 struct Domain
     iname::Symbol
-    lowerbound::Union{Number, Expr, Symbol}
-    upperbound::Union{Number, Expr, Symbol}
+    lowerbound::Union{Number, Symbol, Expr}
+    upperbound::Union{Number, Symbol, Expr}
     recurrence::Expr
     dependencies::Set{Symbol}
     instructions::Vector{Union{Instruction, Domain}}
@@ -59,13 +59,14 @@ Args:
     argtypes: types of arguments to kernel
 
 Example LoopKernel:
->>> kern = LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}])
+>>> kern = LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}], [])
 """
 struct LoopKernel
     instructions::Vector{Instruction}
     domains::Vector{Domain}
     args::Vector{Symbol}
     argtypes::Vector{Type}
+    consts::Vector{Symbol}
 end
 
 
