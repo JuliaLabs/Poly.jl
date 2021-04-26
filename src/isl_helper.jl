@@ -21,76 +21,76 @@ return expression
 function run_polyhedral_model(kernel::LoopKernel)::Expr
     # init
     context = ISL.API.isl_ctx_alloc()
-    println("GOT CONTEXT")
+    # println("GOT CONTEXT")
     space = ISL.API.isl_set_read_from_str(context, "{:}")
-    println("GOT SPACE")
+    # println("GOT SPACE")
 
     # domain
-    @show instructions_isl_rep(kernel)
+    # @show instructions_isl_rep(kernel)
     instructions = ISL.API.isl_union_set_read_from_str(context, instructions_isl_rep(kernel))
-    println("GOT INSTS")
+    # println("GOT INSTS")
 
     # access patterns
     may_read, may_write, must_write = accesses_isl_rep(kernel)
-    @show may_read
-    @show may_write
-    @show must_write
+    # @show may_read
+    # @show may_write
+    # @show must_write
     may_read = ISL.API.isl_union_map_read_from_str(context, may_read)
     may_write = ISL.API.isl_union_map_read_from_str(context, may_write)
     must_write = ISL.API.isl_union_map_read_from_str(context, must_write)
-    println("GOT ACCESS PATTERNS")
+    # println("GOT ACCESS PATTERNS")
 
     # original schedule
     schedule = schedule_isl_rep(kernel)
-    @show schedule
+    # @show schedule
     schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
-    ISL.API.isl_union_map_dump(schedule)
-    println("DUMPED SCHEDULE")
+    # ISL.API.isl_union_map_dump(schedule)
+    # println("DUMPED SCHEDULE")
 
     # read after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_read))
     access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_write))
     access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
     access = ISL.API.isl_union_access_info_set_schedule_map(access, ISL.API.isl_union_map_copy(schedule))
-    println("SET ACCESS RAW")
+    # println("SET ACCESS RAW")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
-    println("GOT FLOW RAW")
+    # println("GOT FLOW RAW")
     raw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    println("GOT DEPS RAW")
-    ISL.API.isl_union_map_dump(raw_deps)
-    println("DUMPED read-after-write DEPS")
+    # println("GOT DEPS RAW")
+    # ISL.API.isl_union_map_dump(raw_deps)
+    # println("DUMPED read-after-write DEPS")
     build = ISL.API.isl_ast_build_from_context(space)
-    println("GOT BUILD")
+    # println("GOT BUILD")
 
     # write after read deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
     access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_read))
     access = ISL.API.isl_union_access_info_set_schedule_map(access, ISL.API.isl_union_map_copy(schedule))
-    println("SET ACCESS WAR")
+    # println("SET ACCESS WAR")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
-    println("GOT FLOW WAR")
+    # println("GOT FLOW WAR")
     war_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    println("GOT DEPS WAR")
-    ISL.API.isl_union_map_dump(war_deps)
-    println("DUMPED write-after-read DEPS")
+    # println("GOT DEPS WAR")
+    # ISL.API.isl_union_map_dump(war_deps)
+    # println("DUMPED write-after-read DEPS")
 
     # write after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
     access = ISL.API.isl_union_access_info_set_may_source(access, may_write)
     access = ISL.API.isl_union_access_info_set_schedule_map(access, schedule)
-    println("SET ACCESS WAW")
+    # println("SET ACCESS WAW")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
-    println("GOT FLOW WAW")
+    # println("GOT FLOW WAW")
     waw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    println("GOT DEPS WAW")
-    ISL.API.isl_union_map_dump(waw_deps)
-    println("DUMPED write-after-write DEPS")
+    # println("GOT DEPS WAW")
+    # ISL.API.isl_union_map_dump(waw_deps)
+    # println("DUMPED write-after-write DEPS")
 
     # use deps to construct new schedule validity constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
     all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
-    ISL.API.isl_union_map_dump(all_deps)
-    println("DUMPED all DEPS")
+    # ISL.API.isl_union_map_dump(all_deps)
+    # println("DUMPED all DEPS")
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
     schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, all_deps)
 
@@ -102,39 +102,39 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # other modifications to schedule
 
     # print schedule
-    c = ISL.API.isl_schedule_get_ctx(schedule)
-    p = ISL.API.isl_printer_to_str(c)
-    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "sched.txt", "w+")
-    # file = fopen("/tmp/test.txt", "w+")
-    p = ISL.API.isl_printer_to_file(c, file)
-    q = ISL.API.isl_printer_print_schedule(p, schedule)
-    p = ISL.API.isl_printer_flush(p)
-    println("PRINTED SCHEDULE TO sched.txt")
+    # c = ISL.API.isl_schedule_get_ctx(schedule)
+    # p = ISL.API.isl_printer_to_str(c)
+    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "sched.txt", "w+")
+    # # file = fopen("/tmp/test.txt", "w+")
+    # p = ISL.API.isl_printer_to_file(c, file)
+    # q = ISL.API.isl_printer_print_schedule(p, schedule)
+    # p = ISL.API.isl_printer_flush(p)
+    # println("PRINTED SCHEDULE TO sched.txt")
 
     # construct AST from new schedule
     build = ISL.API.isl_ast_build_from_context(space)
-    println("GOT BUILD")
+    # println("GOT BUILD")
     ast = ISL.API.isl_ast_build_node_from_schedule(build, schedule)
-    println("GOT AST")
-    ISL.API.isl_ast_node_dump(ast)
-    println("DUMPED AST")
+    # println("GOT AST")
+    # ISL.API.isl_ast_node_dump(ast)
+    # println("DUMPED AST")
 
     # dump ast to file in C code
-    c = ISL.API.isl_ast_node_get_ctx(ast)
-    p = ISL.API.isl_printer_to_str(c)
-    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
+    # c = ISL.API.isl_ast_node_get_ctx(ast)
+    # p = ISL.API.isl_printer_to_str(c)
+    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
     # file = fopen("/tmp/test.txt", "w+")
-    p = ISL.API.isl_printer_to_file(c, file)
-    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    q = ISL.API.isl_printer_print_ast_node(p, ast)
-    p = ISL.API.isl_printer_flush(p)
+    # p = ISL.API.isl_printer_to_file(c, file)
+    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    # q = ISL.API.isl_printer_print_ast_node(p, ast)
+    # p = ISL.API.isl_printer_flush(p)
     # s = ISL.API.isl_printer_get_str(q)
     # println(Base.unsafe_load(s))
-    println("PRINTED C CODE TO out.txt")
+    # println("PRINTED C CODE TO out.txt")
 
     # parse ast to Julia code
     expr = parse_ast(ast, kernel)
-    @show expr
+    # @show expr
     return expr
 end
 
@@ -468,27 +468,24 @@ function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
     if executes_once == ISL.API.isl_bool_true
         # loop only runs once, just set name = init and run body
         expr = quote
-            let $name = $init
-                $body
-            end
+            $name = $init
+            $body
         end
         return expr
     else
         inc = parse_ast_expr(ISL.API.isl_ast_node_for_get_inc(ast)) # incremental step
         cond = parse_ast_expr(ISL.API.isl_ast_node_for_get_cond(ast)) # final condition
 
-        # let name = init
-            # while cond
-                # body
-                # name += inc
-            # end
+        # name = init
+        # while cond
+            # body
+            # name += inc
         # end
         expr = quote
-            let $name = $init
-                while $cond
-                    $body
-                    $name += $inc
-                end
+            $name = $init
+            while $cond
+                $body
+                $name += $inc
             end
         end
         return expr
@@ -549,6 +546,29 @@ function parse_ast_block(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Ex
     return quote $(exs...) end
 end
 
+"""
+helpers for replacing symbols in expression
+"""
+function replace_expr_syms(ex::Expr, sym_dict::Dict{Symbol, Symbol})::Expr
+    new_args = []
+    for arg in ex.args
+        push!(new_args, replace_expr_syms(arg, sym_dict))
+    end
+    new_ex = Expr(ex.head, new_args...)
+    return new_ex
+end
+
+function replace_expr_syms(sym::Symbol, sym_dict::Dict{Symbol, Symbol})
+    if haskey(sym_dict, sym)
+        return sym_dict[sym]
+    end
+    return sym
+end
+
+function replace_expr_syms(num::Number, sym_dict::Dict{Symbol, Symbol})
+    return num
+end
+
 
 """
 parse an ast node representing an expression
@@ -557,6 +577,7 @@ function parse_ast_user(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Exp
     expr = ISL.API.isl_ast_node_user_get_expr(ast)
     ISL.API.isl_ast_expr_free(expr)
     first_expr = ISL.API.isl_ast_expr_op_get_arg(expr, 0) # first arg is "function" name (symbol cooresponding to instruction)
+    n = ISL.API.isl_ast_expr_get_op_n_arg(expr)
     id = ISL.API.isl_ast_expr_id_get_id(first_expr)
     ISL.API.isl_ast_expr_free(first_expr)
     name = Base.unsafe_convert(Ptr{Cchar}, ISL.API.isl_id_get_name(id)) # name of identifier
@@ -567,7 +588,26 @@ function parse_ast_user(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Exp
     for instruction in kernel.instructions
         if sym_to_str(instruction.iname) == name
             # found instruction
-            return instruction.body
+            # replace original iterators with new iterators
+            old_ids = []
+            for iname in instruction.dependencies
+                for domain in kernel.domains
+                    if domain.iname == iname
+                        push!(old_ids, iname)
+                    end
+                end
+            end
+            new_ids = Dict{Symbol, Symbol}()
+            for i=1:Int(n)-1
+                arg = ISL.API.isl_ast_expr_op_get_arg(expr, i)
+                arg_id = ISL.API.isl_ast_expr_id_get_id(arg)
+                arg_name = Base.unsafe_convert(Ptr{Cchar}, ISL.API.isl_id_get_name(arg_id)) # name of identifier
+                arg_name = Base.unsafe_string(arg_name)
+                ISL.API.isl_id_free(arg_id)
+                new_ids[old_ids[i]] = Symbol(arg_name)
+            end
+
+            return replace_expr_syms(instruction.body, new_ids)
         end
     end
 
@@ -589,6 +629,9 @@ function parse_ast_expr(expr::Ptr{ISL.API.isl_ast_expr})::Union{Symbol, Expr, Nu
     elseif type == ISL.API.isl_ast_expr_int
         val = ISL.API.isl_ast_expr_int_get_val(expr)
         num = ISL.API.isl_val_get_d(val)
+        if Int(num) == num
+            num = Int(num)
+        end
         ISL.API.isl_val_free(val)
         return :($num)
     else

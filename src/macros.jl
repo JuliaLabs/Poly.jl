@@ -13,7 +13,7 @@ function eval_ex_in_mod(ex::Expr, mod::Module)::Number
     for arg in ex.args[2:end]
         push!(new_args, eval_ex_in_mod(arg, mod))
     end
-    new_ex = Expr(:call, op, new_args...)
+    new_ex = Expr(ex.head, op, new_args...)
     return eval(new_ex)
 end
 

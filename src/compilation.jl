@@ -463,31 +463,32 @@ determine all constants in kernel
 """
 function set_kernel_consts(kernel::LoopKernel)
     const_symbols = Set{Symbol}()
+    domain_inames = [domain.iname for domain in kernel.domains]
 
     # get all symbols in loop bounds (since must be constant)
     for domain in kernel.domains
-        if typeof(domain.lowerbound) == Symbol
+        if typeof(domain.lowerbound) == Symbol && !(domain.lowerbound in domain_inames)
             push!(const_symbols, domain.lowerbound)
         elseif typeof(domain.lowerbound) == Expr
             for arg in domain.lowerbound.args[2:end]
-                if typeof(arg) == Symbol
+                if typeof(arg) == Symbol && !(arg in domain_inames)
                     push!(const_symbols, arg)
                 end
             end
         end
 
-        if typeof(domain.upperbound) == Symbol
+        if typeof(domain.upperbound) == Symbol && !(domain.upperbound in domain_inames)
             push!(const_symbols, domain.upperbound)
         elseif typeof(domain.upperbound) == Expr
             for arg in domain.upperbound.args[2:end]
-                if typeof(arg) == Symbol
+                if typeof(arg) == Symbol && !(arg in domain_inames)
                     push!(const_symbols, arg)
                 end
             end
         end
 
         step = domain.recurrence.args[2]
-        if typeof(step) == Symbol
+        if typeof(step) == Symbol  && !(step in domain_inames)
             push!(const_symbols, step)
         end
     end

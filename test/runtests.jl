@@ -26,14 +26,14 @@ using StaticArrays
 
 
     # add arrays with global offset
-    instructions = [Instruction(:offset, :(offset = 4), Set()),
-                    Instruction(:add, :(out[i, j] = A[i, j] + B[i, j] + offset), Set())]
+    offset = 4
+    instructions = [Instruction(:add, :(out[i, j] = A[i, j] + B[i, j] + offset), Set())]
 
     domains = [Domain(:i, 1, :(n), :(i += 1), Set(), []),
                Domain(:j, 1, :(m), :(j += 1), Set(), [])]
 
 
-    kern = compile(LoopKernel(instructions, domains, [:out, :A, :B, :n, :m], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}], []))
+    kern = compile(LoopKernel(instructions, domains, [:out, :A, :B, :n, :m, :offset], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}], []))
 
     A = rand(10, 10)
     B = rand(10, 10)
@@ -41,7 +41,7 @@ using StaticArrays
     n = size(out, 1)
     m = size(out, 2)
 
-    kern(out=out, A=A, B=B, n=n, m=m)
+    kern(out=out, A=A, B=B, n=n, m=m, offset=offset)
 
     @test isapprox(out, A+B.+4)
 
