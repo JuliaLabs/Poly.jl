@@ -29,7 +29,6 @@ end
 helper for macro
 """
 function poly_loop(ex::Expr, mod::Module)::LoopKernel
-    ex = MacroTools.rmlines(ex)
     # generate loop domain
     bounds = ex.args[1]
     symbol = bounds.args[1]

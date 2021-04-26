@@ -26,26 +26,28 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # println("GOT SPACE")
 
     # domain
-    # @show instructions_isl_rep(kernel)
+    @show instructions_isl_rep(kernel)
     instructions = ISL.API.isl_union_set_read_from_str(context, instructions_isl_rep(kernel))
-    # println("GOT INSTS")
+    println("GOT INSTS")
 
     # access patterns
     may_read, may_write, must_write = accesses_isl_rep(kernel)
-    # @show may_read
-    # @show may_write
-    # @show must_write
+    @show may_read
+    @show may_write
+    @show must_write
     may_read = ISL.API.isl_union_map_read_from_str(context, may_read)
+    println("GOT READ ACCESS")
     may_write = ISL.API.isl_union_map_read_from_str(context, may_write)
+    println("GOT WRITE ACCESS")
     must_write = ISL.API.isl_union_map_read_from_str(context, must_write)
-    # println("GOT ACCESS PATTERNS")
+    println("GOT MUST WRITE ACCESS")
 
     # original schedule
     schedule = schedule_isl_rep(kernel)
-    # @show schedule
+    @show schedule
     schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
-    # ISL.API.isl_union_map_dump(schedule)
-    # println("DUMPED SCHEDULE")
+    ISL.API.isl_union_map_dump(schedule)
+    println("DUMPED SCHEDULE")
 
     # read after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_read))
@@ -57,10 +59,8 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # println("GOT FLOW RAW")
     raw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
     # println("GOT DEPS RAW")
-    # ISL.API.isl_union_map_dump(raw_deps)
-    # println("DUMPED read-after-write DEPS")
-    build = ISL.API.isl_ast_build_from_context(space)
-    # println("GOT BUILD")
+    ISL.API.isl_union_map_dump(raw_deps)
+    println("DUMPED read-after-write DEPS")
 
     # write after read deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
@@ -71,8 +71,8 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # println("GOT FLOW WAR")
     war_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
     # println("GOT DEPS WAR")
-    # ISL.API.isl_union_map_dump(war_deps)
-    # println("DUMPED write-after-read DEPS")
+    ISL.API.isl_union_map_dump(war_deps)
+    println("DUMPED write-after-read DEPS")
 
     # write after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
@@ -83,14 +83,14 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # println("GOT FLOW WAW")
     waw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
     # println("GOT DEPS WAW")
-    # ISL.API.isl_union_map_dump(waw_deps)
-    # println("DUMPED write-after-write DEPS")
+    ISL.API.isl_union_map_dump(waw_deps)
+    println("DUMPED write-after-write DEPS")
 
     # use deps to construct new schedule validity constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
     all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
-    # ISL.API.isl_union_map_dump(all_deps)
-    # println("DUMPED all DEPS")
+    ISL.API.isl_union_map_dump(all_deps)
+    println("DUMPED all DEPS")
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
     schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, all_deps)
 
@@ -102,14 +102,14 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # other modifications to schedule
 
     # print schedule
-    # c = ISL.API.isl_schedule_get_ctx(schedule)
-    # p = ISL.API.isl_printer_to_str(c)
-    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "sched.txt", "w+")
-    # # file = fopen("/tmp/test.txt", "w+")
-    # p = ISL.API.isl_printer_to_file(c, file)
-    # q = ISL.API.isl_printer_print_schedule(p, schedule)
-    # p = ISL.API.isl_printer_flush(p)
-    # println("PRINTED SCHEDULE TO sched.txt")
+    c = ISL.API.isl_schedule_get_ctx(schedule)
+    p = ISL.API.isl_printer_to_str(c)
+    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "sched.txt", "w+")
+    # file = fopen("/tmp/test.txt", "w+")
+    p = ISL.API.isl_printer_to_file(c, file)
+    q = ISL.API.isl_printer_print_schedule(p, schedule)
+    p = ISL.API.isl_printer_flush(p)
+    println("PRINTED SCHEDULE TO sched.txt")
 
     # construct AST from new schedule
     build = ISL.API.isl_ast_build_from_context(space)
@@ -120,21 +120,21 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # println("DUMPED AST")
 
     # dump ast to file in C code
-    # c = ISL.API.isl_ast_node_get_ctx(ast)
-    # p = ISL.API.isl_printer_to_str(c)
-    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
+    c = ISL.API.isl_ast_node_get_ctx(ast)
+    p = ISL.API.isl_printer_to_str(c)
+    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
     # file = fopen("/tmp/test.txt", "w+")
-    # p = ISL.API.isl_printer_to_file(c, file)
-    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    # q = ISL.API.isl_printer_print_ast_node(p, ast)
-    # p = ISL.API.isl_printer_flush(p)
+    p = ISL.API.isl_printer_to_file(c, file)
+    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    q = ISL.API.isl_printer_print_ast_node(p, ast)
+    p = ISL.API.isl_printer_flush(p)
     # s = ISL.API.isl_printer_get_str(q)
     # println(Base.unsafe_load(s))
-    # println("PRINTED C CODE TO out.txt")
+    println("PRINTED C CODE TO out.txt")
 
     # parse ast to Julia code
     expr = parse_ast(ast, kernel)
-    # @show expr
+    @show expr
     return expr
 end
 
@@ -182,7 +182,7 @@ function get_instructions_domains(instructions::Vector{Instruction}, kernel::Loo
             end
             count += 1
             if step != 1
-                conditions = string(conditions, @sprintf("exists (a: %s = %d*a and %s <= %s <= %s)", string(domain.iname), step, string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                conditions = string(conditions, @sprintf("exists (a: %s = %s*a and %s <= %s <= %s)", string(domain.iname), string(step), string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             else
                 conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             end
@@ -216,6 +216,7 @@ end
 
 
 """
+OLD
 modify loop domains to be in the ISL syntax form
 ex: i = 1:10 becomes [] -> {[i]: 1 <= i <= 10}
 ex: i = 1:2:n becomes  [n] -> {[i]: exists a: i = 2a and 1 <= i <= n}
@@ -244,14 +245,18 @@ function instructions_isl_rep(kernel::LoopKernel)::String
     icount = 1
     for instruction in kernel.instructions
         count = 1
-        name = string(sym_to_str(instruction.iname), get_related_domains(instruction, kernel), " : ")
+        name = string(sym_to_str(instruction.iname), get_related_domains(instruction, kernel))
         conditions = get_instructions_domains([instruction], kernel)
+
+        if icount != 1
+            insn_map = string(insn_map, "; ")
+        end
+        icount += 1
+
         if conditions != ""
-            if icount != 1
-                insn_map = string(insn_map, "; ")
-            end
-            icount += 1
-            insn_map = string(insn_map, name, conditions)
+            insn_map = string(insn_map, name, " : ", conditions)
+        else
+            insn_map = string(insn_map, name)
         end
     end
     insn_map = string(insn_map, "}")
@@ -294,6 +299,10 @@ function expr_accesses(sym::Symbol, kernel::LoopKernel)::Vector{Union{Expr, Symb
 end
 
 function expr_accesses(num::Number, kernel::LoopKernel)::Vector{Union{Expr, Symbol}}
+    return []
+end
+
+function expr_accesses(l::LineNumberNode, kernel::LoopKernel)::Vector{Union{Expr, Symbol}}
     return []
 end
 
@@ -410,7 +419,11 @@ function schedule_isl_rep(kernel::LoopKernel)::String
             schedule = string(schedule, ";")
         end
         count += 1
-        schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> ", iters, " : ", conditions)
+        if conditions != ""
+            schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> ", iters, " : ", conditions)
+        else
+            schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> ", iters)
+        end
     end
 
     schedule = string(schedule, "}")
@@ -567,6 +580,10 @@ end
 
 function replace_expr_syms(num::Number, sym_dict::Dict{Symbol, Symbol})
     return num
+end
+
+function replace_expr_syms(l::LineNumberNode, sym_dict::Dict{Symbol, Symbol})
+    return l
 end
 
 

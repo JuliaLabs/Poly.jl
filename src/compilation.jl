@@ -386,6 +386,8 @@ get all symbols in a LineNumberNode
 """
 get_all_symbols(n::LineNumberNode)::Set{Symbol} = Set{Symbol}()
 
+get_all_symbols(::Any)::Set{Symbol} = Set{Symbol}()
+
 
 """
 get all symbols in an expression
