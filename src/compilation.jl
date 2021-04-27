@@ -16,10 +16,8 @@ function add_loop_deps(kernel::LoopKernel)
             if inexpr(inst.body, domain.iname)
                 # instruction references loop iname
                 push!(inst.dependencies, domain.iname)
-                push!(domain.instructions, inst)
             elseif domain.iname in inst.dependencies
                 # add instructions for loops declared as dependencies
-                push!(domain.instructions, inst)
             end
         end
     end
@@ -29,13 +27,13 @@ function add_loop_deps(kernel::LoopKernel)
             domain2 = kernel.domains[j]
             if inexpr(domain1.recurrence, domain2.iname)
                 push!(domain2.dependencies, domain1.iname)
-                push!(domain1.instructions, domain2)
+                # push!(domain1.instructions, domain2)
             elseif isexpr(domain1.lowerbound) && inexpr(domain1.lowerbound, domain2.iname)
                 push!(domain2.dependencies, domain1.iname)
-                push!(domain1.instructions, domain2)
+                # push!(domain1.instructions, domain2)
             elseif isexpr(domain1.upperbound) && inexpr(domain1.upperbound, domain2.iname)
                 push!(domain2.dependencies, domain1.iname)
-                push!(domain1.instructions, domain2)
+                # push!(domain1.instructions, domain2)
             end
         end
     end
@@ -544,7 +542,7 @@ COMPILATION
 compile native julia code given a kernel
 """
 function compile(kernel::LoopKernel)
-    add_loop_deps(kernel)
+    # add_loop_deps(kernel)
     # ast = construct_ast(kernel)
     # order = topological_sort_order(ast)
     # order = nest_loops(kernel, order)
@@ -583,7 +581,7 @@ end
 compile native julia code given a kernel to an expression
 """
 function compile_expr(kernel::LoopKernel)::Expr
-    add_loop_deps(kernel)
+    # add_loop_deps(kernel)
     # ast = construct_ast(kernel)
     # order = topological_sort_order(ast)
     # # ast = construct_ast(kernel)

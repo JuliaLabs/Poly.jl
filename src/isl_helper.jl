@@ -22,7 +22,6 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # init
     context = ISL.API.isl_ctx_alloc()
     # println("GOT CONTEXT")
-    space = ISL.API.isl_set_read_from_str(context, "{:}")
     # println("GOT SPACE")
 
     # domain
@@ -43,17 +42,32 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     println("GOT MUST WRITE ACCESS")
 
     # original schedule
-    schedule = schedule_isl_rep(kernel)
-    @show schedule
-    schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
-    ISL.API.isl_union_map_dump(schedule)
+    # schedule = schedule_isl_rep(kernel)
+    # @show schedule
+    # schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
+    # ISL.API.isl_union_map_dump(schedule)
+    space = ISL.API.isl_set_read_from_str(context, "{:}")
+    schedule = schedule_tree_isl_rep(context, kernel.domains[1], kernel)
+    ISL.API.isl_schedule_dump(schedule)
     println("DUMPED SCHEDULE")
+
+    build = ISL.API.isl_ast_build_from_context(space)
+    ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
+    c = ISL.API.isl_ast_node_get_ctx(ast)
+    p = ISL.API.isl_printer_to_str(c)
+    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "orig.txt", "w+")
+    p = ISL.API.isl_printer_to_file(c, file)
+    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    q = ISL.API.isl_printer_print_ast_node(p, ast)
+    p = ISL.API.isl_printer_flush(p)
+    println("PRINTED ORIGINAL TO orig.txt")
+
 
     # read after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_read))
     access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_write))
     access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
-    access = ISL.API.isl_union_access_info_set_schedule_map(access, ISL.API.isl_union_map_copy(schedule))
+    access = ISL.API.isl_union_access_info_set_schedule(access, ISL.API.isl_schedule_copy(schedule))
     # println("SET ACCESS RAW")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
     # println("GOT FLOW RAW")
@@ -65,7 +79,7 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # write after read deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
     access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_read))
-    access = ISL.API.isl_union_access_info_set_schedule_map(access, ISL.API.isl_union_map_copy(schedule))
+    access = ISL.API.isl_union_access_info_set_schedule(access, ISL.API.isl_schedule_copy(schedule))
     # println("SET ACCESS WAR")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
     # println("GOT FLOW WAR")
@@ -77,7 +91,7 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # write after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
     access = ISL.API.isl_union_access_info_set_may_source(access, may_write)
-    access = ISL.API.isl_union_access_info_set_schedule_map(access, schedule)
+    access = ISL.API.isl_union_access_info_set_schedule(access, schedule)
     # println("SET ACCESS WAW")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
     # println("GOT FLOW WAW")
@@ -101,17 +115,12 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
 
     # other modifications to schedule
 
-    # print schedule
-    c = ISL.API.isl_schedule_get_ctx(schedule)
-    p = ISL.API.isl_printer_to_str(c)
-    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "sched.txt", "w+")
-    # file = fopen("/tmp/test.txt", "w+")
-    p = ISL.API.isl_printer_to_file(c, file)
-    q = ISL.API.isl_printer_print_schedule(p, schedule)
-    p = ISL.API.isl_printer_flush(p)
+    # dump schedule
+    ISL.API.isl_schedule_dump(schedule)
     println("PRINTED SCHEDULE TO sched.txt")
 
     # construct AST from new schedule
+    space = ISL.API.isl_set_read_from_str(context, "{:}")
     build = ISL.API.isl_ast_build_from_context(space)
     # println("GOT BUILD")
     ast = ISL.API.isl_ast_build_node_from_schedule(build, schedule)
@@ -196,7 +205,7 @@ end
 get the related iteration spaces for an instruction
 ex: [i, j]
 """
-function get_related_domains(instruction, kernel)
+function get_related_domains(instruction::Instruction, kernel::LoopKernel)
     count = 1
     domains = "["
     for iname in instruction.dependencies
@@ -410,7 +419,7 @@ function schedule_isl_rep(kernel::LoopKernel)::String
                     iters = string(iters, ", ")
                 end
                 icount += 1
-                iters = string(iters, 0, ", ", 0)
+                iters = string(iters, domain.iname, ", ", 0)
             end
         end
         iters = string(iters, "]")
@@ -427,6 +436,142 @@ function schedule_isl_rep(kernel::LoopKernel)::String
     end
 
     schedule = string(schedule, "}")
+    return schedule
+end
+
+
+"""
+construct a partial schedule for a grouping of instructions in domains
+"""
+function partial_schedule_isl(domains::Vector{Domain}, instructions::Vector{Instruction}, kernel::LoopKernel)::String
+
+    mupa = "["
+
+    dcount = 0
+    for domain in domains
+        set = ""
+
+        icount = 0
+        for instruction in instructions
+            if domain.iname in instruction.dependencies
+                if icount != 0
+                    set = string(set, "; ")
+                end
+                icount += 1
+                set = string(set, sym_to_str(instruction.iname), get_related_domains(instruction, kernel), "-> [(", domain.iname, ")]")
+            end
+        end
+
+        if set != ""
+            if dcount != 0
+                mupa = string(mupa, ", ")
+            end
+            dcount += 1
+            mupa = string(mupa, "{", set, "}")
+        end
+    end
+
+    mupa = string(mupa, "]")
+
+    return mupa
+end
+
+
+"""
+construct an original schedule for dependency analysis
+"""
+function schedule_tree_isl_rep(context::Ptr{ISL.API.isl_ctx}, domain::Domain, kernel::LoopKernel, parent_doms=[])::Ptr{ISL.API.isl_schedule}
+
+    new_parent_doms = [domain]
+    append!(new_parent_doms, parent_doms)
+    schedule = :nothing
+    # navigate through original scheduling
+    for instruction in domain.instructions
+        if typeof(instruction) == Instruction
+            # construct instruction schedule
+            temp_kern = LoopKernel([instruction], kernel.domains, kernel.args, kernel.argtypes, kernel.consts)
+            inst_dom = instructions_isl_rep(temp_kern)
+            inst_dom = ISL.API.isl_union_set_read_from_str(context, inst_dom)
+            inst_schedule = ISL.API.isl_schedule_from_domain(inst_dom)
+
+            # put in sequence
+            if schedule == :nothing
+                schedule = inst_schedule
+            else
+                schedule = ISL.API.isl_schedule_sequence(schedule, inst_schedule)
+            end
+        else # Domain
+            dom_schedule = schedule_tree_isl_rep(context, instruction, kernel, new_parent_doms)
+            if schedule == :nothing
+                schedule = dom_schedule
+            else
+                schedule = ISL.API.isl_schedule_sequence(schedule, dom_schedule)
+            end
+        end
+        ISL.API.isl_schedule_dump(schedule)
+        space = ISL.API.isl_set_read_from_str(context, "{:}")
+        build = ISL.API.isl_ast_build_from_context(space)
+        ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
+        c = ISL.API.isl_ast_node_get_ctx(ast)
+        p = ISL.API.isl_printer_to_str(c)
+        p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+        q = ISL.API.isl_printer_print_ast_node(p, ast)
+        str = ISL.API.isl_printer_get_str(q)
+        str = Base.unsafe_convert(Ptr{Cchar}, str)
+        println(Base.unsafe_string(str))
+    end
+
+    # insert partial schedule
+    insts = Instruction[]
+    for instruction in kernel.instructions
+        if domain.iname in instruction.dependencies
+            push!(insts, instruction)
+        end
+    end
+    partial = partial_schedule_isl([domain], insts, kernel)
+    if partial != "[]"
+        partial = ISL.API.isl_multi_union_pw_aff_read_from_str(context, partial)
+        schedule = ISL.API.isl_schedule_insert_partial_schedule(schedule, partial)
+    end
+
+    ISL.API.isl_schedule_dump(schedule)
+    space = ISL.API.isl_set_read_from_str(context, "{:}")
+    build = ISL.API.isl_ast_build_from_context(space)
+    ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
+    c = ISL.API.isl_ast_node_get_ctx(ast)
+    p = ISL.API.isl_printer_to_str(c)
+    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    q = ISL.API.isl_printer_print_ast_node(p, ast)
+    str = ISL.API.isl_printer_get_str(q)
+    str = Base.unsafe_convert(Ptr{Cchar}, str)
+    println(Base.unsafe_string(str))
+    println("DUMPED SCHEDULE FOR ", domain.iname)
+
+    # for instruction in kernel.instructions
+    #     if visited[instruction]
+    #         continue
+    #     end
+    #     insts = [instruction]
+    #     for inst2 in kernel.instructions
+    #         if domains_map[inst2] == domains_map[instruction]
+    #             push!(insts, inst2)
+    #             visited[inst2] = true
+    #         end
+    #     end
+    #     temp_kern = LoopKernel(insts, kernel.domains, kernel.args, kernel.argtypes, kernel.consts)
+    #     domain = instructions_isl_rep(temp_kern)
+    #     domain = ISL.API.isl_union_set_read_from_str(context, domain)
+    #     inst_schedule = ISL.API.isl_schedule_from_domain(domain)
+    #     ISL.API.isl_schedule_dump(inst_schedule)
+    #     @printf("DUMPED sched for %s\n", instruction.iname)
+    #     if schedule == :nothing
+    #         schedule = inst_schedule
+    #     else
+    #         schedule = ISL.API.isl_schedule_sequence(schedule, inst_schedule)
+    #         ISL.API.isl_schedule_dump(schedule)
+    #         @printf("DUMPED NEW sched\n")
+    #     end
+    # end
     return schedule
 end
 
@@ -623,8 +768,8 @@ function parse_ast_user(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Exp
                 ISL.API.isl_id_free(arg_id)
                 new_ids[old_ids[i]] = Symbol(arg_name)
             end
-
-            return replace_expr_syms(instruction.body, new_ids)
+            ex = replace_expr_syms(instruction.body, new_ids)
+            return :(@inbounds $ex)
         end
     end
 

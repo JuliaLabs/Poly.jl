@@ -28,10 +28,10 @@ end
 """
 helper for macro
 """
-function poly_loop(ex::Expr, mod::Module)::LoopKernel
+function poly_loop(ex::Expr, mod::Module, parent_doms=[])::LoopKernel
     # generate loop domain
     bounds = ex.args[1]
-    symbol = bounds.args[1]
+    iname = bounds.args[1]
     space = bounds.args[2]
     if typeof(space) != Expr || !(length(space.args) == 3 || length(space.args) == 4)
         error("expected a loop in the form bound:bound or bound:step:bound")
@@ -44,12 +44,12 @@ function poly_loop(ex::Expr, mod::Module)::LoopKernel
         try
             lowerbound = eval_ex_in_mod(space.args[2], mod)
             upperbound = eval_ex_in_mod(space.args[3], mod)
-            recurrence = :($symbol += 1)
+            recurrence = :($iname += 1)
         catch e
             # symbols not in global scope
             lowerbound = space.args[2]
             upperbound = space.args[3]
-            recurrence = :($symbol += 1)
+            recurrence = :($iname += 1)
         end
     else
         # bound : step : bound
@@ -59,15 +59,18 @@ function poly_loop(ex::Expr, mod::Module)::LoopKernel
         try
             lowerbound = eval_ex_in_mod(space.args[2], mod)
             upperbound = eval_ex_in_mod(space.args[4], mod)
-            recurrence = :($symbol += eval_ex_in_mod(space.args[3], mod))
+            recurrence = :($iname += eval_ex_in_mod(space.args[3], mod))
         catch e
             # symbols not in global scope
             lowerbound = space.args[2]
             upperbound = space.args[3]
-            recurrence = :($symbol += 1)
+            recurrence = :($iname += 1)
         end
     end
-    domains = [Domain(symbol, lowerbound, upperbound, recurrence, Set(), [])]
+    dom = Domain(iname, lowerbound, upperbound, recurrence, Set(), [])
+    domains = [dom]
+    new_parent_doms = copy(parent_doms)
+    append!(new_parent_doms, [dom])
 
     # generate loop body instructions
     body = ex.args[2]
@@ -75,9 +78,14 @@ function poly_loop(ex::Expr, mod::Module)::LoopKernel
     for line in body.args
         if typeof(line) == Expr && line.head == :for
             # nested loops
-            subkern = poly_loop(line, mod)
+            subkern = poly_loop(line, mod, new_parent_doms)
             append!(instructions, subkern.instructions)
             append!(domains, subkern.domains)
+            push!(dom.instructions, subkern.domains[1])
+            for d in parent_doms
+                push!(subkern.domains[1].dependencies, d.iname)
+            end
+            push!(subkern.domains[1].dependencies, dom.iname)
         elseif typeof(line) == Expr && line.head == :macrocall && line.args[1] == Symbol("@depends_on")
             # dependency macro
             if length(line.args) != 4 || typeof(line.args[3]) != Expr || length(line.args[3].args) != 2
@@ -95,6 +103,11 @@ function poly_loop(ex::Expr, mod::Module)::LoopKernel
             iname = gensym(string(symbol))
             inst = Instruction(iname, expr, Set([dependency]))
             push!(instructions, inst)
+            for d in parent_doms
+                push!(inst.dependencies, d.iname)
+            end
+            push!(inst.dependencies, dom.iname)
+            push!(dom.instructions, inst)
         elseif typeof(line) != LineNumberNode
             symbol = line
             while typeof(symbol) != Symbol
@@ -103,6 +116,11 @@ function poly_loop(ex::Expr, mod::Module)::LoopKernel
             iname = gensym(string(symbol))
             inst = Instruction(iname, line, Set())
             push!(instructions, inst)
+            for d in parent_doms
+                push!(inst.dependencies, d.iname)
+            end
+            push!(inst.dependencies, dom.iname)
+            push!(dom.instructions, inst)
         end
     end
 
