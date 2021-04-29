@@ -84,6 +84,32 @@ using StaticArrays
         @test isapprox(out, A*B*2)
     end
 
+    @testset "macro stride test" begin
+        # test loops with non-1 stride
+        arr = ones(6)
+        @poly_loop for i = 1:3:6
+            arr[i] += 1
+        end
+        @test arr == [2, 1, 1, 2, 1, 1]
+    end
+
+    @testset "macro stride 2D test" begin
+        # test loops with non-1 stride
+        arr = ones(6, 6)
+        @poly_loop for i = 1:2:6
+            for j = 1:2:6
+                arr[i, j] += 1
+        end
+
+        arr2 = ones(6, 6)
+        for i = 1:2:6
+            for j = 1:2:6
+                arr2[i, j] += 1
+        end
+
+        @test arr == arr2
+    end
+
     @testset "inter-loop dependence test" begin
         # test loop iterators depending on other iterators
         arr = zeros(3, 3)
@@ -103,7 +129,7 @@ using StaticArrays
         # simple @depends_on test
         count = 0
         @poly_loop for i = 1:10
-            @depends_on elem=i count += 1
+            count += 1
         end
 
         @test count == 10
@@ -169,42 +195,36 @@ using StaticArrays
 
     @testset "tiled matrix multiplication" begin
         # test macros complicated (tiled matrix multiplication)
-        A = rand(128, 128)
-        B = rand(128, 128)
-        C = zeros(128, 128)
+        N = 128
 
-        N = size(C)[1]
+        A = rand(N, N)
+        B = rand(N, N)
+        C = zeros(N, N)
+
         TILE_DIM = 32
-        NUM_TILES = Int(N/TILE_DIM)
+        tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
+        tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
 
-        @poly_loop for gj = 1:NUM_TILES
-            for gi = 1:NUM_TILES
+        @poly_loop for gj = 0:TILE_DIM:N-1
+            for gi = 0:TILE_DIM:N-1
                 # loop over tiles needed for this calculation
-                tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
-                tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
                 for t = 0:TILE_DIM:N
                     # load tiles needed for calculation
                     for i = 1:TILE_DIM
                         for j = 1:TILE_DIM
-                            # global tile
-                            I = (gi-1) * TILE_DIM + i
-                            J = (gj-1) * TILE_DIM + j
                             # get tile1 and tile2 values
-                            tile1[i, j] = A[I, t + j]
-                            tile2[i, j] = B[t + i, J]
+                            tile1[i, j] = A[gi + i, t + j]
+                            tile2[i, j] = B[t + i, gj + j]
                         end
                     end
                     # synchronize
                     # loop over tiles to calculate for I, J spot
                     for jj in 1:TILE_DIM
-                        JJ = (gj-1) * TILE_DIM + jj
                         # loop over row/col in tiles
                         for k = 1:TILE_DIM
                             for ii = 1:TILE_DIM
-                                # global tile
-                                II = (gi-1) * TILE_DIM + ii
                                 # add tile1 * tile2
-                                @depends_on elem=t C[II, JJ] += tile1[ii, k] * tile2[k, jj]
+                                C[gi + ii, gj + jj] += tile1[ii, k] * tile2[k, jj]
                             end
                         end
                     end

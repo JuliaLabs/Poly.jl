@@ -38,34 +38,14 @@ function poly_loop(ex::Expr, mod::Module, parent_doms=[])::LoopKernel
     end
     if length(space.args) == 3
         # bound : bound
-        lowerbound = 0
-        upperbound = 0
-        recurrence = 0
-        try
-            lowerbound = eval_ex_in_mod(space.args[2], mod)
-            upperbound = eval_ex_in_mod(space.args[3], mod)
-            recurrence = :($iname += 1)
-        catch e
-            # symbols not in global scope
-            lowerbound = space.args[2]
-            upperbound = space.args[3]
-            recurrence = :($iname += 1)
-        end
+        lowerbound = space.args[2]
+        upperbound = space.args[3]
+        recurrence = :($iname += 1)
     else
         # bound : step : bound
-        lowerbound = 0
-        upperbound = 0
-        recurrence = 0
-        try
-            lowerbound = eval_ex_in_mod(space.args[2], mod)
-            upperbound = eval_ex_in_mod(space.args[4], mod)
-            recurrence = :($iname += eval_ex_in_mod(space.args[3], mod))
-        catch e
-            # symbols not in global scope
-            lowerbound = space.args[2]
-            upperbound = space.args[3]
-            recurrence = :($iname += 1)
-        end
+        lowerbound = space.args[2]
+        upperbound = space.args[4]
+        recurrence = :($iname += $(space.args[3]))
     end
     dom = Domain(iname, lowerbound, upperbound, recurrence, Set(), [])
     domains = [dom]
@@ -158,19 +138,25 @@ Dependencies are inferred by accesses. If a dependency is required that cannot b
         @depends_on elem=i println("hello world") # otherwise, there is no easy way to tell if this can't be elevated from the loop, and transformation is agressive
     end
 
-Since dependencies are inferred from accesses, functions that modify the parameters cannot be safely used, since only the reads are inferred. Functions that do not modify the inputs are fine. @inbounds usage is not neccessary (and will not work with dependence analysis)- the macro will insert these as part of the aggressive transformations.
+Since dependencies are inferred from accesses, function calls are currently NOT supported. If a function modifies any inputs, then there is no way to know which inputs are modified or how those inputs are modified. If a function returns an output such as a matrix, the write to each individual index of the matrix (for example A[i, j]) cannot be inferrred by ISL. In addition, @inbounds is not neccessary as the aggresive transformation will add @inbounds automatically.
 
 All loop iterators must have unique names, even if in different scopes. This is so an original schedule can be extracted from the code.
 
+All array indices must be in terms of loop bounds or constants, not of variables. For example,
+        c = i + j
+        A[c]
+    Must become
+        A[i + j]
+
 Multilpicative indexing (i.e. A[i*t, j]) is not supported. If needed, stride over the iterator.
     So, this:
-    @poly_loop for t=1:NUM_TILES
-        A[TILE_SIZE*t] = 1
-    end
+        @poly_loop for t=1:NUM_TILES
+            A[TILE_SIZE*t] = 1
+        end
     Would need to become this:
-    @poly_loop for t=1:TILE_SIZE:NUM_TILES
-        A[t] = 1
-    end
+        @poly_loop for t=1:TILE_SIZE:NUM_TILES
+            A[t] = 1
+        end
 
 """
 macro poly_loop(ex0...)

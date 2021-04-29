@@ -173,6 +173,15 @@ end
 
 
 """
+helper to return a unique identifier for a kernel existential quantifier
+"""
+function unique_identifier()::String
+    id = gensym("id")
+    return sym_to_str(id)
+end
+
+
+"""
 helper to get string rep of params in kernel
 """
 function get_params_str(kernel::LoopKernel)
@@ -188,6 +197,7 @@ helper to get the domains related to instruction(s) in the ISL format
 ex: 0 <= i <= n and 0 <= j <= n
 """
 function get_instructions_domains(instructions::Vector{Instruction}, kernel::LoopKernel)::String
+
     conditions = ""
     count = 1
     for domain in kernel.domains
@@ -204,7 +214,8 @@ function get_instructions_domains(instructions::Vector{Instruction}, kernel::Loo
             end
             count += 1
             if step != 1
-                conditions = string(conditions, @sprintf("exists (a: %s = %s*a and %s <= %s <= %s)", string(domain.iname), string(step), string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                identifier = unique_identifier()
+                conditions = string(conditions, @sprintf("exists %s: %s = %s*%s + %s and %s <= %s <= %s", identifier, string(domain.iname), string(step), identifier, string(domain.lowerbound), string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             else
                 conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             end
@@ -632,7 +643,7 @@ function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
     ISL.API.isl_id_free(id)
     name = Base.unsafe_convert(Ptr{Cchar}, ISL.API.isl_id_get_name(id))
     name = Symbol(Base.unsafe_string(name)) # iterator symbol
-    init = parse_ast_expr(ISL.API.isl_ast_node_for_get_init(ast)) # initial condition
+    lb = parse_ast_expr(ISL.API.isl_ast_node_for_get_init(ast)) # initial condition
     body = parse_ast(ISL.API.isl_ast_node_for_get_body(ast), kernel) # body of loop
 
     if executes_once == ISL.API.isl_bool_true
@@ -643,19 +654,20 @@ function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
         end
         return expr
     else
-        inc = parse_ast_expr(ISL.API.isl_ast_node_for_get_inc(ast)) # incremental step
+        step = parse_ast_expr(ISL.API.isl_ast_node_for_get_inc(ast)) # incremental step
         cond = parse_ast_expr(ISL.API.isl_ast_node_for_get_cond(ast)) # final condition
+        ub = cond.args[3]
+        if cond.args[1] == :(<)
+            ub += 1
+        elseif cond.args[1] != :(<=)
+            error("unexpected conditional operator ", cond.head)
+        end
 
-        # name = init
-        # while cond
+        # for name = lb:step:up
             # body
-            # name += inc
-        # end
         expr = quote
-            $name = $init
-            while $cond
+            for $name = $lb:$step:$ub
                 $body
-                $name += $inc
             end
         end
         return expr
