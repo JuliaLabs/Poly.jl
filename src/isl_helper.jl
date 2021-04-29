@@ -53,14 +53,21 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
 
     build = ISL.API.isl_ast_build_from_context(space)
     ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
+    # c = ISL.API.isl_ast_node_get_ctx(ast)
+    # p = ISL.API.isl_printer_to_str(c)
+    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "orig.txt", "w+")
+    # p = ISL.API.isl_printer_to_file(c, file)
+    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    # q = ISL.API.isl_printer_print_ast_node(p, ast)
+    # p = ISL.API.isl_printer_flush(p)
     c = ISL.API.isl_ast_node_get_ctx(ast)
     p = ISL.API.isl_printer_to_str(c)
-    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "orig.txt", "w+")
-    p = ISL.API.isl_printer_to_file(c, file)
     p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
     q = ISL.API.isl_printer_print_ast_node(p, ast)
-    p = ISL.API.isl_printer_flush(p)
-    println("PRINTED ORIGINAL TO orig.txt")
+    str = ISL.API.isl_printer_get_str(q)
+    str = Base.unsafe_convert(Ptr{Cchar}, str)
+    println(Base.unsafe_string(str))
+    println("PRINTED ORIGINAL")
 
 
     # read after write deps
@@ -107,6 +114,7 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     println("DUMPED all DEPS")
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
     schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, all_deps)
+    ISL.API.isl_schedule_constraints_dump(schedule_constraints)
 
     # proximity constraints
 
@@ -117,7 +125,7 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
 
     # dump schedule
     ISL.API.isl_schedule_dump(schedule)
-    println("PRINTED SCHEDULE TO sched.txt")
+    println("DUMPED NEW SCHEDULE")
 
     # construct AST from new schedule
     space = ISL.API.isl_set_read_from_str(context, "{:}")
@@ -129,17 +137,22 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # println("DUMPED AST")
 
     # dump ast to file in C code
+    # c = ISL.API.isl_ast_node_get_ctx(ast)
+    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
+    # # file = fopen("/tmp/test.txt", "w+")
+    # p = ISL.API.isl_printer_to_file(c, file)
+    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    # q = ISL.API.isl_printer_print_ast_node(p, ast)
+    # p = ISL.API.isl_printer_flush(p)
+    # println("PRINTED C CODE TO out.txt")
+
     c = ISL.API.isl_ast_node_get_ctx(ast)
     p = ISL.API.isl_printer_to_str(c)
-    file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
-    # file = fopen("/tmp/test.txt", "w+")
-    p = ISL.API.isl_printer_to_file(c, file)
     p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
     q = ISL.API.isl_printer_print_ast_node(p, ast)
-    p = ISL.API.isl_printer_flush(p)
-    # s = ISL.API.isl_printer_get_str(q)
-    # println(Base.unsafe_load(s))
-    println("PRINTED C CODE TO out.txt")
+    str = ISL.API.isl_printer_get_str(q)
+    str = Base.unsafe_convert(Ptr{Cchar}, str)
+    println(Base.unsafe_string(str))
 
     # parse ast to Julia code
     expr = parse_ast(ast, kernel)
@@ -208,8 +221,8 @@ ex: [i, j]
 function get_related_domains(instruction::Instruction, kernel::LoopKernel)
     count = 1
     domains = "["
-    for iname in instruction.dependencies
-        for domain in kernel.domains
+    for domain in kernel.domains
+        for iname in instruction.dependencies
             if domain.iname == iname
                 if count != 1
                     domains = string(domains, ", ")
@@ -339,10 +352,15 @@ function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String, String}
     mcount = 1
     for instruction in kernel.instructions
         ds = get_related_domains(instruction, kernel)
-        rhs_parts = expr_accesses(instruction.body.args[2], kernel)
-        lhs_parts = expr_accesses(instruction.body.args[1], kernel)
+        reads = expr_accesses(instruction.body.args[2], kernel)
+        writes = expr_accesses(instruction.body.args[1], kernel)
+        head = instruction.body.head
+        if head != :(=)
+            # read from LHS also
+            append!(reads, writes)
+        end
         # must writes in LHS
-        for part in lhs_parts
+        for part in writes
             if mcount != 1
                 must_write = string(must_write, "; ")
             end
@@ -355,7 +373,7 @@ function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String, String}
             end
         end
         # may reads in RHS and LHS
-        for part in append!(rhs_parts, lhs_parts)
+        for part in reads
             if rcount != 1
                 may_read = string(may_read, "; ")
             end
@@ -508,17 +526,6 @@ function schedule_tree_isl_rep(context::Ptr{ISL.API.isl_ctx}, domain::Domain, ke
                 schedule = ISL.API.isl_schedule_sequence(schedule, dom_schedule)
             end
         end
-        ISL.API.isl_schedule_dump(schedule)
-        space = ISL.API.isl_set_read_from_str(context, "{:}")
-        build = ISL.API.isl_ast_build_from_context(space)
-        ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
-        c = ISL.API.isl_ast_node_get_ctx(ast)
-        p = ISL.API.isl_printer_to_str(c)
-        p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-        q = ISL.API.isl_printer_print_ast_node(p, ast)
-        str = ISL.API.isl_printer_get_str(q)
-        str = Base.unsafe_convert(Ptr{Cchar}, str)
-        println(Base.unsafe_string(str))
     end
 
     # insert partial schedule
@@ -534,18 +541,18 @@ function schedule_tree_isl_rep(context::Ptr{ISL.API.isl_ctx}, domain::Domain, ke
         schedule = ISL.API.isl_schedule_insert_partial_schedule(schedule, partial)
     end
 
-    ISL.API.isl_schedule_dump(schedule)
-    space = ISL.API.isl_set_read_from_str(context, "{:}")
-    build = ISL.API.isl_ast_build_from_context(space)
-    ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
-    c = ISL.API.isl_ast_node_get_ctx(ast)
-    p = ISL.API.isl_printer_to_str(c)
-    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    q = ISL.API.isl_printer_print_ast_node(p, ast)
-    str = ISL.API.isl_printer_get_str(q)
-    str = Base.unsafe_convert(Ptr{Cchar}, str)
-    println(Base.unsafe_string(str))
-    println("DUMPED SCHEDULE FOR ", domain.iname)
+    # ISL.API.isl_schedule_dump(schedule)
+    # space = ISL.API.isl_set_read_from_str(context, "{:}")
+    # build = ISL.API.isl_ast_build_from_context(space)
+    # ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
+    # c = ISL.API.isl_ast_node_get_ctx(ast)
+    # p = ISL.API.isl_printer_to_str(c)
+    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+    # q = ISL.API.isl_printer_print_ast_node(p, ast)
+    # str = ISL.API.isl_printer_get_str(q)
+    # str = Base.unsafe_convert(Ptr{Cchar}, str)
+    # println(Base.unsafe_string(str))
+    # println("DUMPED SCHEDULE FOR ", domain.iname)
 
     # for instruction in kernel.instructions
     #     if visited[instruction]
@@ -572,6 +579,11 @@ function schedule_tree_isl_rep(context::Ptr{ISL.API.isl_ctx}, domain::Domain, ke
     #         @printf("DUMPED NEW sched\n")
     #     end
     # end
+
+    if schedule == :nothing
+        error("Mis-defined initial schedule! Check that instructions are properly nested")
+    end
+
     return schedule
 end
 
@@ -707,7 +719,7 @@ end
 """
 helpers for replacing symbols in expression
 """
-function replace_expr_syms(ex::Expr, sym_dict::Dict{Symbol, Symbol})::Expr
+function replace_expr_syms(ex::Expr, sym_dict::Dict{Symbol, Union{Symbol, Number, Expr}})::Expr
     new_args = []
     for arg in ex.args
         push!(new_args, replace_expr_syms(arg, sym_dict))
@@ -716,18 +728,18 @@ function replace_expr_syms(ex::Expr, sym_dict::Dict{Symbol, Symbol})::Expr
     return new_ex
 end
 
-function replace_expr_syms(sym::Symbol, sym_dict::Dict{Symbol, Symbol})
+function replace_expr_syms(sym::Symbol, sym_dict::Dict{Symbol, Union{Symbol, Number, Expr}})
     if haskey(sym_dict, sym)
         return sym_dict[sym]
     end
     return sym
 end
 
-function replace_expr_syms(num::Number, sym_dict::Dict{Symbol, Symbol})
+function replace_expr_syms(num::Number, sym_dict::Dict{Symbol, Union{Symbol, Number, Expr}})
     return num
 end
 
-function replace_expr_syms(l::LineNumberNode, sym_dict::Dict{Symbol, Symbol})
+function replace_expr_syms(l::LineNumberNode, sym_dict::Dict{Symbol, Union{Symbol, Number, Expr}})
     return l
 end
 
@@ -752,21 +764,18 @@ function parse_ast_user(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Exp
             # found instruction
             # replace original iterators with new iterators
             old_ids = []
-            for iname in instruction.dependencies
-                for domain in kernel.domains
+            for domain in kernel.domains
+                for iname in instruction.dependencies
                     if domain.iname == iname
                         push!(old_ids, iname)
                     end
                 end
             end
-            new_ids = Dict{Symbol, Symbol}()
+            new_ids = Dict{Symbol, Union{Symbol, Number, Expr}}()
             for i=1:Int(n)-1
                 arg = ISL.API.isl_ast_expr_op_get_arg(expr, i)
-                arg_id = ISL.API.isl_ast_expr_id_get_id(arg)
-                arg_name = Base.unsafe_convert(Ptr{Cchar}, ISL.API.isl_id_get_name(arg_id)) # name of identifier
-                arg_name = Base.unsafe_string(arg_name)
-                ISL.API.isl_id_free(arg_id)
-                new_ids[old_ids[i]] = Symbol(arg_name)
+                arg = parse_ast_expr(arg)
+                new_ids[old_ids[i]] = arg
             end
             ex = replace_expr_syms(instruction.body, new_ids)
             return :(@inbounds $ex)

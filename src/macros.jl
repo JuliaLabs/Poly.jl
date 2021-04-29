@@ -147,7 +147,7 @@ Notes:
 
 @poly_loop currently requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
 
-Loop bounds must NOT be function calls, UNLESS @poly_loop is in the global scope of a module. In the global scope, function calls will be evalutated in advance. If not in the global scope, expressions can be used like:
+Loop bounds must NOT be function calls (such as size), since ISL cannot evaluate them. One easy workaround is something like:
     n = size(out, 1)
     @poly_loop for i = 1:n ...
 
@@ -156,6 +156,20 @@ Dependencies are inferred by accesses. If a dependency is required that cannot b
     Example:
     @poly_loop for i = 1:10
         @depends_on elem=i println("hello world") # otherwise, there is no easy way to tell if this can't be elevated from the loop, and transformation is agressive
+    end
+
+Since dependencies are inferred from accesses, functions that modify the parameters cannot be safely used, since only the reads are inferred. Functions that do not modify the inputs are fine. @inbounds usage is not neccessary (and will not work with dependence analysis)- the macro will insert these as part of the aggressive transformations.
+
+All loop iterators must have unique names, even if in different scopes. This is so an original schedule can be extracted from the code.
+
+Multilpicative indexing (i.e. A[i*t, j]) is not supported. If needed, stride over the iterator.
+    So, this:
+    @poly_loop for t=1:NUM_TILES
+        A[TILE_SIZE*t] = 1
+    end
+    Would need to become this:
+    @poly_loop for t=1:TILE_SIZE:NUM_TILES
+        A[t] = 1
     end
 
 """
