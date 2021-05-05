@@ -236,24 +236,6 @@ end
 
 
 """
-OLD
-modify loop domains to be in the ISL syntax form
-ex: i = 1:10 becomes [] -> {[i]: 1 <= i <= 10}
-ex: i = 1:2:n becomes  [n] -> {[i]: exists a: i = 2a and 1 <= i <= n}
-"""
-function domains_isl_rep(kernel::LoopKernel)::String
-    keys = string([domain.iname for domain in kernel.domains])
-    keys = replace.(keys, r":" => "")
-
-    params = get_params_str(kernel)
-
-    conditions = get_instructions_domains(kernel.instructions, kernel)
-
-    return @sprintf("%s -> {%s: %s}", params, keys, conditions)
-end
-
-
-"""
 construct the instructions' domains representation in ISL syntax form
 ex: (id = :mult) C[i, j] += A[i, k] * B[k, j] in matrix multiplication becomes
 [n, m, r, A, B, C] -> {mult[i, j, k] : 0 <= i <= n and 0 <= j <= m and 0 <= k <= r}
@@ -399,64 +381,6 @@ end
 
 
 """
-construct the original schedule of a kernel in ISL representation
-format:
-[params] -> {inst1[i] -> [i, 0] : 0 <= i < n; inst2[i] -> [i, 1] : 0 <= i < n}
-or:
-[A, B, out] -> {out253[j, k, i] -> [i, 0, j, 0, k, 0] : 1 <= i <= 10 and 1 <= j <= 10 and 1 <= k <= 10; out254[j, i] -> [i, 1, j, 1, 0, 0] : 1 <= i <= 10 and 1 <= j <= 10}
-"""
-function schedule_isl_rep(kernel::LoopKernel)::String
-    params = get_params_str(kernel)
-
-    schedule = string(params, " -> {")
-    domains_count = [0 for domain in kernel.domains]
-    count = 0
-    for instruction in kernel.instructions
-        icount = 0
-        ds = get_related_domains(instruction, kernel)
-        conditions = get_instructions_domains([instruction], kernel)
-        iters = "["
-        # instructions are ordered by original specification
-        for (i, domain) in enumerate(kernel.domains)
-            found = false
-            for iname in instruction.dependencies
-                if domain.iname == iname
-                    if icount != 0
-                        iters = string(iters, ", ")
-                    end
-                    icount += 1
-                    iters = string(iters, domain.iname, ", ", domains_count[i])
-                    domains_count[i] += 1
-                    found = true
-                end
-            end
-            if !found
-                if icount != 0
-                    iters = string(iters, ", ")
-                end
-                icount += 1
-                iters = string(iters, domain.iname, ", ", 0)
-            end
-        end
-        iters = string(iters, "]")
-
-        if count != 0
-            schedule = string(schedule, ";")
-        end
-        count += 1
-        if conditions != ""
-            schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> ", iters, " : ", conditions)
-        else
-            schedule = string(schedule, sym_to_str(instruction.iname), ds, " -> ", iters)
-        end
-    end
-
-    schedule = string(schedule, "}")
-    return schedule
-end
-
-
-"""
 construct a partial schedule for a grouping of instructions in domains
 """
 function partial_schedule_isl(domains::Vector{Domain}, instructions::Vector{Instruction}, kernel::LoopKernel)::String
@@ -538,45 +462,6 @@ function schedule_tree_isl_rep(context::Ptr{ISL.API.isl_ctx}, domain::Domain, ke
         partial = ISL.API.isl_multi_union_pw_aff_read_from_str(context, partial)
         schedule = ISL.API.isl_schedule_insert_partial_schedule(schedule, partial)
     end
-
-    # ISL.API.isl_schedule_dump(schedule)
-    # space = ISL.API.isl_set_read_from_str(context, "{:}")
-    # build = ISL.API.isl_ast_build_from_context(space)
-    # ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
-    # c = ISL.API.isl_ast_node_get_ctx(ast)
-    # p = ISL.API.isl_printer_to_str(c)
-    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    # q = ISL.API.isl_printer_print_ast_node(p, ast)
-    # str = ISL.API.isl_printer_get_str(q)
-    # str = Base.unsafe_convert(Ptr{Cchar}, str)
-    # println(Base.unsafe_string(str))
-    # println("DUMPED SCHEDULE FOR ", domain.iname)
-
-    # for instruction in kernel.instructions
-    #     if visited[instruction]
-    #         continue
-    #     end
-    #     insts = [instruction]
-    #     for inst2 in kernel.instructions
-    #         if domains_map[inst2] == domains_map[instruction]
-    #             push!(insts, inst2)
-    #             visited[inst2] = true
-    #         end
-    #     end
-    #     temp_kern = LoopKernel(insts, kernel.domains, kernel.args, kernel.argtypes, kernel.consts)
-    #     domain = instructions_isl_rep(temp_kern)
-    #     domain = ISL.API.isl_union_set_read_from_str(context, domain)
-    #     inst_schedule = ISL.API.isl_schedule_from_domain(domain)
-    #     ISL.API.isl_schedule_dump(inst_schedule)
-    #     @printf("DUMPED sched for %s\n", instruction.iname)
-    #     if schedule == :nothing
-    #         schedule = inst_schedule
-    #     else
-    #         schedule = ISL.API.isl_schedule_sequence(schedule, inst_schedule)
-    #         ISL.API.isl_schedule_dump(schedule)
-    #         @printf("DUMPED NEW sched\n")
-    #     end
-    # end
 
     if schedule == :nothing
         error("Mis-defined initial schedule! Check that instructions are properly nested")
@@ -851,39 +736,4 @@ function parse_ast_expr(expr::Ptr{ISL.API.isl_ast_expr})::Union{Symbol, Expr, Nu
             return :()
         end
     end
-end
-
-
-"""
-OLD
-map rep of dependencies
-"""
-function deps_map(kernel::LoopKernel)::String
-    params = get_params_str(kernel)
-
-    deps_map = "{"
-    count = 1
-    for instruction in kernel.instructions
-        ds = get_related_domains(instruction, kernel)
-        for iname in instruction.dependencies
-            for instruction2 in kernel.instructions
-                if instruction2.iname == iname
-                    ds2 = get_related_domains(instruction2, kernel)
-                    if count != 1
-                        deps_map = string(deps_map, "; ")
-                    end
-                    count += 1
-                    deps_map = string(deps_map, sym_to_str(instruction.iname), ds, " -> ", sym_to_str(instruction2.iname), ds2)
-                    # get domains
-                    conditions = get_instructions_domains([instruction, instruction2], kernel)
-                    if conditions != ""
-                        deps_map = string(deps_map, " : ", conditions)
-                    end
-                end
-            end
-        end
-    end
-
-    return @sprintf("%s -> %s", params, deps_map)
-
 end
