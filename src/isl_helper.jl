@@ -21,45 +21,31 @@ return expression
 function run_polyhedral_model(kernel::LoopKernel)::Expr
     # init
     context = ISL.API.isl_ctx_alloc()
-    # println("GOT CONTEXT")
-    # println("GOT SPACE")
 
     # domain
-    @show instructions_isl_rep(kernel)
     instructions = ISL.API.isl_union_set_read_from_str(context, instructions_isl_rep(kernel))
-    println("GOT INSTS")
 
     # access patterns
     may_read, may_write, must_write = accesses_isl_rep(kernel)
-    @show may_read
-    @show may_write
-    @show must_write
+    # @show may_read
+    # @show may_write
+    # @show must_write
     may_read = ISL.API.isl_union_map_read_from_str(context, may_read)
-    println("GOT READ ACCESS")
+    # println("GOT READ ACCESS")
     may_write = ISL.API.isl_union_map_read_from_str(context, may_write)
-    println("GOT WRITE ACCESS")
+    # println("GOT WRITE ACCESS")
     must_write = ISL.API.isl_union_map_read_from_str(context, must_write)
-    println("GOT MUST WRITE ACCESS")
+    # println("GOT MUST WRITE ACCESS")
 
     # original schedule
-    # schedule = schedule_isl_rep(kernel)
-    # @show schedule
-    # schedule = ISL.API.isl_union_map_read_from_str(context, schedule)
-    # ISL.API.isl_union_map_dump(schedule)
-    space = ISL.API.isl_set_read_from_str(context, "{:}")
     schedule = schedule_tree_isl_rep(context, kernel.domains[1], kernel)
-    ISL.API.isl_schedule_dump(schedule)
-    println("DUMPED SCHEDULE")
+    # ISL.API.isl_schedule_dump(schedule)
+    # println("DUMPED SCHEDULE")
 
+    # show original code
+    space = ISL.API.isl_set_read_from_str(context, "{:}")
     build = ISL.API.isl_ast_build_from_context(space)
     ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
-    # c = ISL.API.isl_ast_node_get_ctx(ast)
-    # p = ISL.API.isl_printer_to_str(c)
-    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "orig.txt", "w+")
-    # p = ISL.API.isl_printer_to_file(c, file)
-    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    # q = ISL.API.isl_printer_print_ast_node(p, ast)
-    # p = ISL.API.isl_printer_flush(p)
     c = ISL.API.isl_ast_node_get_ctx(ast)
     p = ISL.API.isl_printer_to_str(c)
     p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
@@ -67,18 +53,16 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     str = ISL.API.isl_printer_get_str(q)
     str = Base.unsafe_convert(Ptr{Cchar}, str)
     println(Base.unsafe_string(str))
-    println("PRINTED ORIGINAL")
-
+    println("PRINTED ORIGINAL CODE")
 
     # read after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_read))
     access = ISL.API.isl_union_access_info_set_must_source(access, ISL.API.isl_union_map_copy(must_write))
-    # access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_empty(ISL.API.isl_union_map_get_space(schedule)))
     access = ISL.API.isl_union_access_info_set_schedule(access, ISL.API.isl_schedule_copy(schedule))
     flow = ISL.API.isl_union_access_info_compute_flow(access)
     raw_deps = ISL.API.isl_union_flow_get_must_dependence(flow)
-    ISL.API.isl_union_map_dump(raw_deps)
-    println("DUMPED read-after-write DEPS")
+    # ISL.API.isl_union_map_dump(raw_deps)
+    # println("DUMPED read-after-write DEPS")
 
     # write after read and write after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(must_write))
@@ -87,24 +71,32 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     access = ISL.API.isl_union_access_info_set_schedule(access, schedule)
     flow = ISL.API.isl_union_access_info_compute_flow(access)
     waw_deps = ISL.API.isl_union_flow_get_must_dependence(flow)
-    ISL.API.isl_union_map_dump(waw_deps)
-    println("DUMPED write-after-write DEPS")
+    # ISL.API.isl_union_map_dump(waw_deps)
+    # println("DUMPED write-after-write DEPS")
     war_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    ISL.API.isl_union_map_dump(war_deps)
-    println("DUMPED write-after-read DEPS")
+    # ISL.API.isl_union_map_dump(war_deps)
+    # println("DUMPED write-after-read DEPS")
 
     # use deps to construct new schedule validity constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
     all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
-    ISL.API.isl_union_map_dump(all_deps)
-    println("DUMPED all DEPS")
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
     schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-    # schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-    # schedule_constraints = ISL.API.isl_schedule_constraints_set_coincidence(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-    ISL.API.isl_schedule_constraints_dump(schedule_constraints)
 
     # proximity constraints
+    # schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+
+    # coincidence constraints
+    # schedule_constraints = ISL.API.isl_schedule_constraints_set_coincidence(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+
+    # loop ordering
+    loop_orderings = get_best_nesting_orders(kernel)
+    @show loop_orderings
+
+    # ISL.API.isl_schedule_constraints_dump(schedule_constraints)
+    # println("DUMPED SCHEDULE CONSTRAINTS")
+
+    # schedule heuristics
 
     # compute schedule
     schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
@@ -112,28 +104,15 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # other modifications to schedule
 
     # dump schedule
-    ISL.API.isl_schedule_dump(schedule)
-    println("DUMPED NEW SCHEDULE")
+    # ISL.API.isl_schedule_dump(schedule)
+    # println("DUMPED NEW SCHEDULE")
 
     # construct AST from new schedule
     space = ISL.API.isl_set_read_from_str(context, "{:}")
     build = ISL.API.isl_ast_build_from_context(space)
-    # println("GOT BUILD")
     ast = ISL.API.isl_ast_build_node_from_schedule(build, schedule)
-    # println("GOT AST")
-    # ISL.API.isl_ast_node_dump(ast)
-    # println("DUMPED AST")
 
-    # dump ast to file in C code
-    # c = ISL.API.isl_ast_node_get_ctx(ast)
-    # file = ccall((:fopen,), Ptr{Libc.FILE}, (Ptr{Cchar}, Ptr{Cchar}), "out.txt", "w+")
-    # # file = fopen("/tmp/test.txt", "w+")
-    # p = ISL.API.isl_printer_to_file(c, file)
-    # p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    # q = ISL.API.isl_printer_print_ast_node(p, ast)
-    # p = ISL.API.isl_printer_flush(p)
-    # println("PRINTED C CODE TO out.txt")
-
+    # print code
     c = ISL.API.isl_ast_node_get_ctx(ast)
     p = ISL.API.isl_printer_to_str(c)
     p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
@@ -141,6 +120,7 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     str = ISL.API.isl_printer_get_str(q)
     str = Base.unsafe_convert(Ptr{Cchar}, str)
     println(Base.unsafe_string(str))
+    println("PRINTED NEW CODE")
 
     # parse ast to Julia code
     expr = parse_ast(ast, kernel)

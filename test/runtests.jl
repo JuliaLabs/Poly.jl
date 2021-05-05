@@ -127,6 +127,38 @@ using StaticArrays
         @test arr == expected
     end
 
+    @testset "inter-loop dependence test 2" begin
+        # test loop iterators depending on other iterators
+        arr = zeros(3, 3)
+        expected = [1 0 0;
+                    1 1 0;
+                    1 1 1]
+        @poly_loop for i = 1:3
+            for j = 1:i
+                arr[i, j] = 1
+            end
+        end
+
+        @test arr == expected
+    end
+
+    @testset "inter-loop dependence test 3" begin
+        # test loop iterators depending on other iterators
+        arr = zeros(3, 3)
+        expected = [6 6 6;
+                    17 5 5;
+                    9 8 3]
+        @poly_loop for i = 1:3
+            for j = 1:3
+                for k = i:3
+                    arr[i, j] += arr[j, k] + k
+                end
+            end
+        end
+
+        @test arr == expected
+    end
+
     @testset "dependence test" begin
         # simple @depends_on test
         count = 0
@@ -154,6 +186,26 @@ using StaticArrays
         end
 
         @test isapprox(arr, arr2)
+    end
+
+    @testset "basic matmul" begin
+        # test macros basic matmul
+        A = rand(10, 10)
+        B = rand(10, 10)
+        out = zeros(10, 10)
+        n = size(out, 1)
+        m = size(out, 2)
+        r = size(A, 2)
+
+        @poly_loop for i = 1:n
+            for j = 1:m
+                for k = 1:r
+                    out[i, j] += A[i, k] * B[k, j]
+                end
+            end
+        end
+
+        @test isapprox(out, A*B)
     end
 
     @testset "lu decomposition" begin
