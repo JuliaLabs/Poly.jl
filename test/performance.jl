@@ -85,37 +85,44 @@ end
 
 @testset "JuLoop.jl" begin
 
-    # test matrix mul wrong loop order (check automatic reordering)
-    DIM = 256
-    A = rand(DIM, DIM)
-    B = rand(DIM, DIM)
-    out = zeros(DIM, DIM)
+    @testset "automatic loop reordering" begin
+        # test matrix mul wrong loop order (check automatic reordering)
+        DIM = 512
+        A = rand(DIM, DIM)
+        B = rand(DIM, DIM)
+        out = zeros(DIM, DIM)
 
-    t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros(256, 256))
+        poly_mul(A, B, out) # allow for compiling once
 
-    t_orig = @benchmark mul($A, $B, out) setup=(out = zeros(256, 256))
+        t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
 
-    t_right_order = @benchmark mul_right_order($A, $B, out) setup=(out = zeros(256, 256))
+        t_orig = @benchmark mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
 
-    r = ratio(minimum(t_orig), minimum(t_poly))
-    j = judge(minimum(t_poly), minimum(t_right_order))
+        t_right_order = @benchmark mul_right_order($A, $B, out) setup=(out = zeros($DIM, $DIM))
 
-    @test r.time > 2 # want at least 2x speedup over bad order
-    @test j.time != :regression # want comparable or better than right order
+        r = ratio(minimum(t_orig), minimum(t_poly))
+        j = judge(minimum(t_poly), minimum(t_right_order))
 
+        @test r.time > 6 # want at least 6x speedup over bad order
+        @test j.time != :regression # want comparable or better than right order
+    end
 
-    # test performance nears tiled matrix multiplication (check automatic tiling)
-    DIM = 512
-    A = rand(DIM, DIM)
-    B = rand(DIM, DIM)
-    out = zeros(DIM, DIM)
-
-    t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros(512, 512))
-
-    t_tile = @benchmark tiled_mul($A, $B, out) setup=(out = zeros(512, 512))
-
-    j = judge(minimum(t_poly), minimum(t_tile))
-
-    @test j.time != :regression # want improvement or invariant (not regression)
+    # @testset "automatic tiling" begin
+    #     # test performance nears tiled matrix multiplication (check automatic tiling)
+    #     DIM = 1024
+    #     A = rand(DIM, DIM)
+    #     B = rand(DIM, DIM)
+    #     out = zeros(DIM, DIM)
+    #
+    #     poly_mul(A, B, out) # allow for compiling once
+    #
+    #     t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
+    #
+    #     t_tile = @benchmark tiled_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
+    #
+    #     j = judge(minimum(t_poly), minimum(t_tile))
+    #
+    #     @test j.time != :regression # want improvement or invariant (not regression)
+    # end
 
 end

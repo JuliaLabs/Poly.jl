@@ -13,6 +13,7 @@ create an ISL union set representing the domains and instructions in kernel
 create an ISL union maps representing access relations in kernel
 create an ISL schedule from intial implementation
 create dependencies maps by analyzing the accesses and schedule
+add loop optimal ordering to dependencies
 create a new schedule from all dependencies
 create an AST from the schedule
 parse AST to julia code
@@ -590,14 +591,26 @@ function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
             error("unexpected conditional operator ", cond.head)
         end
 
-        # for name = lb:step:up
-            # body
-        expr = quote
-            for $name = $lb:$step:$ub
-                $body
+        if step == 1
+            # for name = lb:up
+                # body
+            expr = quote
+                for $name = $lb:$ub
+                    $body
+                end
             end
+            return expr
+
+        else
+            # for name = lb:step:up
+                # body
+            expr = quote
+                for $name = $lb:$step:$ub
+                    $body
+                end
+            end
+            return expr
         end
-        return expr
     end
 end
 
