@@ -21,6 +21,7 @@ return expression
 function run_polyhedral_model(kernel::LoopKernel)::Expr
     # init
     context = ISL.API.isl_ctx_alloc()
+    ISL.API.isl_options_set_on_error(context, 0) # warn errors
 
     # domain
     instructions = ISL.API.isl_union_set_read_from_str(context, instructions_isl_rep(kernel))
@@ -77,21 +78,24 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # ISL.API.isl_union_map_dump(war_deps)
     # println("DUMPED write-after-read DEPS")
 
+
+    # loop ordering
+    loop_ordering_deps = get_loop_ordering_deps_isl(kernel)
+    @show loop_ordering_deps
+    loop_ordering_deps = ISL.API.isl_union_map_read_from_str(context, loop_ordering_deps)
+
     # use deps to construct new schedule validity constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
     all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
-    schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
-    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+    loop_ordering_deps = ISL.API.isl_union_map_union(ISL.API.isl_union_map_copy(all_deps), loop_ordering_deps)
+    schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(loop_ordering_deps))
 
-    # proximity constraints
-    # schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+    # proximity constraints (keeps elements nested where possible)
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
 
     # coincidence constraints
     # schedule_constraints = ISL.API.isl_schedule_constraints_set_coincidence(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-
-    # loop ordering
-    loop_orderings = get_best_nesting_orders(kernel)
-    @show loop_orderings
 
     # ISL.API.isl_schedule_constraints_dump(schedule_constraints)
     # println("DUMPED SCHEDULE CONSTRAINTS")
@@ -99,13 +103,26 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     # schedule heuristics
 
     # compute schedule
+    ISL.API.isl_options_set_on_error(context, 1) # silence error printing
     schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
+    ISL.API.isl_options_set_on_error(context, 0) # resume error printing
+
+    # handle scheduling error
+    if ISL.API.isl_ctx_last_error_line(context) != -1
+        # reset context error
+        ISL.API.isl_ctx_reset_error(context)
+        # try schedule without loop reordering
+        schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
+        schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+        schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+        schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
+    end
 
     # other modifications to schedule
 
     # dump schedule
-    # ISL.API.isl_schedule_dump(schedule)
-    # println("DUMPED NEW SCHEDULE")
+    ISL.API.isl_schedule_dump(schedule)
+    println("DUMPED NEW SCHEDULE")
 
     # construct AST from new schedule
     space = ISL.API.isl_set_read_from_str(context, "{:}")
@@ -195,8 +212,9 @@ end
 """
 get the related iteration spaces for an instruction
 ex: [i, j]
+if primes is true, returns [i', j']
 """
-function get_related_domains(instruction::Instruction, kernel::LoopKernel)
+function get_related_domains(instruction::Instruction, kernel::LoopKernel, primes=false)
     count = 1
     domains = "["
     for domain in kernel.domains
@@ -207,6 +225,9 @@ function get_related_domains(instruction::Instruction, kernel::LoopKernel)
                 end
                 count += 1
                 domains = string(domains, domain.iname)
+                if primes
+                    domains = string(domains, "\'")
+                end
             end
         end
     end
@@ -357,6 +378,60 @@ function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String, String}
     end
     may_write = must_write
     return may_read, may_write, must_write
+end
+
+
+"""
+Get the loop ordering dependencies for a kernel
+For example, to specify the order j, k, i in a loop nest:
+    "[n, r, m] -> {out253[i, j, k] -> out253[i', j', k']: j, k, i << j', k', i'}"
+"""
+function get_loop_ordering_deps_isl(kernel::LoopKernel)::String
+    params = get_params_str(kernel)
+
+    ordering_deps = "{"
+    count = 0
+
+    loop_orderings = get_best_nesting_orders(kernel)
+    @show loop_orderings
+
+    for order in loop_orderings
+        for domain in kernel.domains
+            if domain.iname in order
+                for instruction in domain.instructions
+                    if typeof(instruction) == Instruction
+                        # found instruction to use
+                        if count != 0
+                            ordering_deps = string(ordering_deps, "; ")
+                        end
+                        count += 1
+                        # sym[i, j] -> sym[i', j']
+                        ordering_deps = string(ordering_deps, sym_to_str(instruction.iname), get_related_domains(instruction, kernel), " -> ", sym_to_str(instruction.iname), get_related_domains(instruction, kernel, true), ": ")
+                        order_string = ""
+                        order_string_prime = ""
+                        ocount = 0
+                        for iname in order
+                            if iname in instruction.dependencies
+                                if ocount != 0
+                                    order_string = string(order_string, ", ")
+                                    order_string_prime = string(order_string_prime, ", ")
+                                end
+                                ocount += 1
+                                order_string = string(order_string, iname)
+                                order_string_prime = string(order_string_prime, iname, "\'")
+                            end
+                        end
+                        # i, j << i', j'
+                        ordering_deps = string(ordering_deps, order_string, " << ", order_string_prime)
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    ordering_deps = string(ordering_deps, "}")
+    return @sprintf("%s -> %s", params, ordering_deps)
 end
 
 
