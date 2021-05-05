@@ -25,7 +25,7 @@ function add_loop_deps(kernel::LoopKernel)
         domain1 = kernel.domains[i]
         for j = i+1:length(kernel.domains)
             domain2 = kernel.domains[j]
-            if inexpr(domain1.recurrence, domain2.iname)
+            if isexpr(domain1.step) && inexpr(domain1.step, domain2.iname)
                 push!(domain2.dependencies, domain1.iname)
                 # push!(domain1.instructions, domain2)
             elseif isexpr(domain1.lowerbound) && inexpr(domain1.lowerbound, domain2.iname)
@@ -421,7 +421,7 @@ function get_all_symbols(kernel::LoopKernel)::Set{Symbol}
     end
 
     for domain in kernel.domains
-        union!(symbols, get_all_symbols(domain.recurrence))
+        union!(symbols, get_all_symbols(domain.step))
         union!(symbols, get_all_symbols(domain.lowerbound))
         union!(symbols, get_all_symbols(domain.upperbound))
         push!(symbols, domain.iname)
@@ -487,9 +487,14 @@ function set_kernel_consts(kernel::LoopKernel)
             end
         end
 
-        step = domain.recurrence.args[2]
-        if typeof(step) == Symbol  && !(step in domain_inames)
-            push!(const_symbols, step)
+        if typeof(domain.step) == Symbol  && !(domain.step in domain_inames)
+            push!(const_symbols, domain.step)
+        elseif typeof(domain.step) == Expr
+            for arg in domain.step.args[2:end]
+                if typeof(arg) == Symbol && !(arg in domain_inames)
+                    push!(const_symbols, arg)
+                end
+            end
         end
     end
 
@@ -510,7 +515,7 @@ function construct(domain::Domain)
         let $iname = $(domain.lowerbound)
             while $iname <= $(domain.upperbound)
                 $(body...)
-                $(domain.recurrence)
+                $iname += $(domain.step)
             end
         end
     end

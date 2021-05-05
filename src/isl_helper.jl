@@ -72,40 +72,26 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
 
     # read after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_read))
-    access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_write))
-    access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
+    access = ISL.API.isl_union_access_info_set_must_source(access, ISL.API.isl_union_map_copy(must_write))
+    # access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_empty(ISL.API.isl_union_map_get_space(schedule)))
     access = ISL.API.isl_union_access_info_set_schedule(access, ISL.API.isl_schedule_copy(schedule))
-    # println("SET ACCESS RAW")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
-    # println("GOT FLOW RAW")
-    raw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    # println("GOT DEPS RAW")
+    raw_deps = ISL.API.isl_union_flow_get_must_dependence(flow)
     ISL.API.isl_union_map_dump(raw_deps)
     println("DUMPED read-after-write DEPS")
 
-    # write after read deps
-    access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
-    access = ISL.API.isl_union_access_info_set_may_source(access, ISL.API.isl_union_map_copy(may_read))
-    access = ISL.API.isl_union_access_info_set_schedule(access, ISL.API.isl_schedule_copy(schedule))
-    # println("SET ACCESS WAR")
-    flow = ISL.API.isl_union_access_info_compute_flow(access)
-    # println("GOT FLOW WAR")
-    war_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    # println("GOT DEPS WAR")
-    ISL.API.isl_union_map_dump(war_deps)
-    println("DUMPED write-after-read DEPS")
-
-    # write after write deps
-    access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_write))
-    access = ISL.API.isl_union_access_info_set_may_source(access, may_write)
+    # write after read and write after write deps
+    access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(must_write))
+    access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
+    access = ISL.API.isl_union_access_info_set_may_source(access, may_read)
     access = ISL.API.isl_union_access_info_set_schedule(access, schedule)
-    # println("SET ACCESS WAW")
     flow = ISL.API.isl_union_access_info_compute_flow(access)
-    # println("GOT FLOW WAW")
-    waw_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    # println("GOT DEPS WAW")
+    waw_deps = ISL.API.isl_union_flow_get_must_dependence(flow)
     ISL.API.isl_union_map_dump(waw_deps)
     println("DUMPED write-after-write DEPS")
+    war_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
+    ISL.API.isl_union_map_dump(war_deps)
+    println("DUMPED write-after-read DEPS")
 
     # use deps to construct new schedule validity constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
@@ -113,7 +99,9 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     ISL.API.isl_union_map_dump(all_deps)
     println("DUMPED all DEPS")
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
-    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, all_deps)
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+    # schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+    # schedule_constraints = ISL.API.isl_schedule_constraints_set_coincidence(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
     ISL.API.isl_schedule_constraints_dump(schedule_constraints)
 
     # proximity constraints
@@ -208,14 +196,13 @@ function get_instructions_domains(instructions::Vector{Instruction}, kernel::Loo
             end
         end
         if use
-            step = domain.recurrence.args[2]
             if count != 1
                 conditions = string(conditions, " and ")
             end
             count += 1
-            if step != 1
+            if domain.step != 1
                 identifier = unique_identifier()
-                conditions = string(conditions, @sprintf("exists %s: %s = %s*%s + %s and %s <= %s <= %s", identifier, string(domain.iname), string(step), identifier, string(domain.lowerbound), string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                conditions = string(conditions, @sprintf("exists %s: %s = %s*%s + %s and %s <= %s <= %s", identifier, string(domain.iname), string(domain.step), identifier, string(domain.lowerbound), string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             else
                 conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
             end

@@ -40,14 +40,14 @@ function poly_loop(ex::Expr, mod::Module, parent_doms=[])::LoopKernel
         # bound : bound
         lowerbound = space.args[2]
         upperbound = space.args[3]
-        recurrence = :($iname += 1)
+        step = 1
     else
         # bound : step : bound
         lowerbound = space.args[2]
         upperbound = space.args[4]
-        recurrence = :($iname += $(space.args[3]))
+        step = space.args[3]
     end
-    dom = Domain(iname, lowerbound, upperbound, recurrence, Set(), [])
+    dom = Domain(iname, lowerbound, upperbound, step, Set(), [])
     domains = [dom]
     new_parent_doms = copy(parent_doms)
     append!(new_parent_doms, [dom])

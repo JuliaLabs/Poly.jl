@@ -29,7 +29,7 @@ Args:
     iname: symbol representing the simple set
     lowerbound: lowerbound of the simple set (inclusive)
     upperbound: upperbound of the simple set (inclusive)
-    recurrence: recurrence relation of elements in the set (i.e, change to loop bounds)
+    step: step of loop iteration
     dependencies: dependencies of this domain
     instructions: instructions in the body of this domain (assigned after initialization)
 
@@ -42,7 +42,7 @@ struct Domain
     iname::Symbol
     lowerbound::Union{Number, Symbol, Expr}
     upperbound::Union{Number, Symbol, Expr}
-    recurrence::Expr
+    step::Union{Number, Symbol, Expr}
     dependencies::Set{Symbol}
     instructions::Vector{Union{Instruction, Domain}}
 end
@@ -99,5 +99,6 @@ Base.show(io::IO, d::AST) = print_tree(io, d)
 include("compilation.jl")
 include("macros.jl")
 include("isl_helper.jl")
+include("striding_analysis.jl")
 
 end
