@@ -290,3 +290,5 @@ using StaticArrays
     # end
 
 end
+
+include("performance.jl")

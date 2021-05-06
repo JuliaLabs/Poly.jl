@@ -138,7 +138,14 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0)::Expr
         ISL.API.isl_schedule_constraints_dump(schedule_constraints)
     end
 
-    # schedule heuristics (how to run scheduler)
+    """
+    scheduling options
+    """
+    # maximize band size- better for tiling
+    ISL.API.isl_options_set_schedule_maximize_band_depth(context, 1)
+    # schedule weakly-connected components together
+    ISL.API.isl_options_set_schedule_whole_component(context, 1)
+    ISL.API.isl_options_set_schedule_treat_coalescing(context, 1)
 
     """
     compute the new schedule
@@ -840,7 +847,7 @@ function parse_ast_expr(expr::Ptr{ISL.API.isl_ast_expr})::Union{Symbol, Expr, Nu
         elseif op_type == ISL.API.isl_ast_expr_op_mul
             return :($arg1 * $arg2)
         elseif op_type == ISL.API.isl_ast_expr_op_fdiv_q
-            return :(floor($arg1 / $arg2))
+            return :(Int(floor($arg1 / $arg2)))
         elseif op_type == ISL.API.isl_ast_expr_op_pdiv_q || op_type == ISL.API.isl_ast_expr_op_div
             return :($arg1 / $arg2)
         elseif op_type == ISL.API.isl_ast_expr_op_pdiv_r || op_type == ISL.API.isl_ast_expr_op_zdiv_r

@@ -91,9 +91,9 @@ end
 Used to allow for code generation and restructuring of a for loop. May reorder some instructions (including loop orderings) and vectorize code. Only the outermost loop should use the macro. The other loops will be handled by the outermost macro
 
 Example:
-@poly_loop for i = 1:size(out, 1)
-    for j = 1:size(out, 2)
-        for k = 1:size(A, 2)
+@poly_loop for i = 1:n
+    for j = 1:m
+        for k = 1:r
             out[i, j] += A[i, k] * B[k, j]
         end
         out[i, j] *= 2
@@ -103,34 +103,49 @@ end
 
 Notes:
 
-@poly_loop currently requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
+@poly_loop requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
 
-Loop bounds must NOT be function calls (such as size), since ISL cannot evaluate them. One easy workaround is something like:
-    n = size(out, 1)
-    @poly_loop for i = 1:n ...
+Loop bounds:
+    Loop bounds must NOT be function calls (such as size), since ISL cannot evaluate them. One easy workaround is something like:
+        n = size(out, 1)
+        @poly_loop for i = 1:n ...
 
-Debugging and verbosity options (see run_polyhedral_model for details) can be passed as:
-    @poly_loop debug=true verbose=2 for ...
+Loop step:
 
-Since dependencies are inferred from accesses, function calls are currently NOT supported. If a function modifies any inputs, then there is no way to know which inputs are modified or how those inputs are modified. If a function returns an output such as a matrix, the write to each individual index of the matrix (for example A[i, j]) cannot be inferrred by ISL. In addition, @inbounds is not neccessary as the aggresive transformation will add @inbounds automatically.
+Debugging:
+    Debugging and verbosity options (see run_polyhedral_model for details) can be passed as:
+        @poly_loop debug=true verbose=2 for ...
 
-All loop iterators must have unique names, even if in different scopes. This is so an original schedule can be extracted from the code.
+Functions:
+    Since dependencies are inferred from accesses, function calls are currently NOT supported.
+        If a function modifies any inputs, then there is no way to know which inputs are modified or how those inputs are modified. If a function returns an output such as a matrix, the write to each individual index of the matrix (for example A[i, j]) cannot be inferrred by ISL. In addition, @inbounds is not neccessary as the aggresive transformation will add @inbounds automatically.
+        The only exceptions are the following (which can be used in loop bounds and in instructions):
+            min():
+                @poly_loop for i=1:min(n, m) ...
+            max():
+                @poly_loop for i=1:max(n, m) ...
+            floor() -> DO NOT cast to Int() (will be added later):
+                @poly_loop for i=1:floor(n/2) ...
 
-All array indices must be in terms of loop bounds or constants, not of variables. For example,
-        c = i + j
-        A[c]
-    Must become
-        A[i + j]
+Loop names:
+    All loop iterators must have unique names, even if in different scopes. This is so an original schedule can be extracted from the code.
 
-Multilpicative indexing (i.e. A[i*t, j]) is not supported. If needed, stride over the iterator.
-    So, this:
-        @poly_loop for t=1:NUM_TILES
-            A[TILE_SIZE*t] = 1
-        end
-    Would need to become this:
-        @poly_loop for t=1:TILE_SIZE:NUM_TILES
-            A[t] = 1
-        end
+Indexing:
+    All array indices must be in terms of loop bounds or constants, not of variables. For example,
+            c = i + j
+            A[c]
+        Must become
+            A[i + j]
+
+    Multilpicative indexing (i.e. A[i*t, j]) is not supported. If needed, stride over the iterator.
+        So, this:
+            @poly_loop for t=1:NUM_TILES
+                A[TILE_SIZE*t] = 1
+            end
+        Would need to become this:
+            @poly_loop for t=1:TILE_SIZE:NUM_TILES
+                A[t] = 1
+            end
 
 """
 macro poly_loop(ex0...)

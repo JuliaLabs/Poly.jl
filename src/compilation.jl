@@ -116,38 +116,28 @@ function set_kernel_consts(kernel::LoopKernel)
 
     # get all symbols in loop bounds (since must be constant)
     for domain in kernel.domains
-        if typeof(domain.lowerbound) == Symbol && !(domain.lowerbound in domain_inames)
-            push!(const_symbols, domain.lowerbound)
-        elseif typeof(domain.lowerbound) == Expr
-            for arg in domain.lowerbound.args[2:end]
-                if typeof(arg) == Symbol && !(arg in domain_inames)
-                    push!(const_symbols, arg)
-                end
-            end
-        end
-
-        if typeof(domain.upperbound) == Symbol && !(domain.upperbound in domain_inames)
-            push!(const_symbols, domain.upperbound)
-        elseif typeof(domain.upperbound) == Expr
-            for arg in domain.upperbound.args[2:end]
-                if typeof(arg) == Symbol && !(arg in domain_inames)
-                    push!(const_symbols, arg)
-                end
-            end
-        end
-
-        if typeof(domain.step) == Symbol  && !(domain.step in domain_inames)
-            push!(const_symbols, domain.step)
-        elseif typeof(domain.step) == Expr
-            for arg in domain.step.args[2:end]
-                if typeof(arg) == Symbol && !(arg in domain_inames)
-                    push!(const_symbols, arg)
-                end
-            end
-        end
+        union!(const_symbols, get_kernel_consts(domain.lowerbound))
+        union!(const_symbols, get_kernel_consts(domain.upperbound))
+        union!(const_symbols, get_kernel_consts(domain.step))
     end
 
     append!(kernel.consts, const_symbols)
+end
+
+function get_kernel_consts(ex::Expr)::Set{Symbol}
+    const_symbols = Set{Symbol}()
+    for arg in ex.args[2:end]
+        union!(const_symbols, get_kernel_consts(arg))
+    end
+    return const_symbols
+end
+
+function get_kernel_consts(sym::Symbol)::Set{Symbol}
+    return Set([sym])
+end
+
+function get_kernel_consts(any)::Set{Symbol}
+    return Set()
 end
 
 
