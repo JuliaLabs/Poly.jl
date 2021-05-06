@@ -28,7 +28,7 @@ end
 """
 helper for macro
 """
-function poly_loop(ex::Expr, mod::Module, parent_doms=[])::LoopKernel
+function poly_loop(ex::Expr, mod::Module; parent_doms=[])::LoopKernel
     # generate loop domain
     bounds = ex.args[1]
     iname = bounds.args[1]
@@ -58,7 +58,7 @@ function poly_loop(ex::Expr, mod::Module, parent_doms=[])::LoopKernel
     for line in body.args
         if typeof(line) == Expr && line.head == :for
             # nested loops
-            subkern = poly_loop(line, mod, new_parent_doms)
+            subkern = poly_loop(line, mod, parent_doms=new_parent_doms)
             append!(instructions, subkern.instructions)
             append!(domains, subkern.domains)
             push!(dom.instructions, subkern.domains[1])
@@ -66,28 +66,6 @@ function poly_loop(ex::Expr, mod::Module, parent_doms=[])::LoopKernel
                 push!(subkern.domains[1].dependencies, d.iname)
             end
             push!(subkern.domains[1].dependencies, dom.iname)
-        elseif typeof(line) == Expr && line.head == :macrocall && line.args[1] == Symbol("@depends_on")
-            # dependency macro
-            if length(line.args) != 4 || typeof(line.args[3]) != Expr || length(line.args[3].args) != 2
-                error("use dependency with @depends_on elem=<Symbol> <Expr> only")
-            end
-            dependency = line.args[3].args[2]
-            if typeof(dependency) != Symbol
-                error("use dependency @depends_on with symbol only")
-            end
-            expr = line.args[4]
-            symbol = expr
-            while typeof(symbol) != Symbol
-                symbol = symbol.args[1]
-            end
-            iname = gensym(string(symbol))
-            inst = Instruction(iname, expr, Set([dependency]))
-            push!(instructions, inst)
-            for d in parent_doms
-                push!(inst.dependencies, d.iname)
-            end
-            push!(inst.dependencies, dom.iname)
-            push!(dom.instructions, inst)
         elseif typeof(line) != LineNumberNode
             symbol = line
             while typeof(symbol) != Symbol
@@ -131,12 +109,8 @@ Loop bounds must NOT be function calls (such as size), since ISL cannot evaluate
     n = size(out, 1)
     @poly_loop for i = 1:n ...
 
-Dependencies are inferred by accesses. If a dependency is required that cannot be inferred from variable reads and writes, please use the @depends_on macro to specify a depencence
-
-    Example:
-    @poly_loop for i = 1:10
-        @depends_on elem=i println("hello world") # otherwise, there is no easy way to tell if this can't be elevated from the loop, and transformation is agressive
-    end
+Debugging and verbosity options (see run_polyhedral_model for details) can be passed as:
+    @poly_loop debug=true verbose=2 for ...
 
 Since dependencies are inferred from accesses, function calls are currently NOT supported. If a function modifies any inputs, then there is no way to know which inputs are modified or how those inputs are modified. If a function returns an output such as a matrix, the write to each individual index of the matrix (for example A[i, j]) cannot be inferrred by ISL. In addition, @inbounds is not neccessary as the aggresive transformation will add @inbounds automatically.
 
@@ -161,10 +135,40 @@ Multilpicative indexing (i.e. A[i*t, j]) is not supported. If needed, stride ove
 """
 macro poly_loop(ex0...)
     mod = __module__ # get module calling macro
-    if length(ex0) != 1
-        error("expected only a loop, got: ", length(ex0), "elements")
+    if length(ex0) > 3
+        error("expected at most 2 options and a loop, got: ", length(ex0), "elements")
     end
-    ex0 = ex0[1] # expression is first arg
+    debug = false
+    verbose = 0
+    if length(ex0) == 2
+        arg = ex0[1]
+        if arg.args[1] == :debug
+            debug = arg.args[2]
+        elseif arg.args[1] == :verbose
+            verbose = arg.args[2]
+        end
+    elseif length(ex0) == 3
+        arg1 = ex0[1]
+        if arg1.args[1] == :debug
+            debug = arg1.args[2]
+        elseif arg1.args[1] == :verbose
+            verbose = arg1.args[2]
+        end
+        arg2 = ex0[2]
+        if arg2.args[1] == :debug
+            debug = arg2.args[2]
+        elseif arg2.args[1] == :verbose
+            verbose = arg2.args[2]
+        end
+    end
+    if typeof(debug) != Bool
+        error("expected boolean for debug, got: ", debug)
+    end
+    if typeof(verbose) != Int
+        error("expected integer for verbose, got: ", verbose)
+    end
+
+    ex0 = ex0[end] # expression is last arg
 
     if ex0.head == :for
         kernel = poly_loop(ex0, mod)
@@ -173,18 +177,8 @@ macro poly_loop(ex0...)
     end
 
     # make kernel
-    expr = MacroTools.prettify(compile_expr(kernel))
+    expr = MacroTools.prettify(compile_expr(kernel, debug=debug, verbose=verbose))
     esc(quote
         $(expr)
     end)
-end
-
-
-"""
-placeholder macro for @poly_loop manual dependencies
-Usage: @depends_on elem=<Symbol> <Expr> (not for loops)
-see @poly_loop for more details
-"""
-macro depends_on(ex0...)
-
 end

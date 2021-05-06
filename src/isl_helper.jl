@@ -18,54 +18,80 @@ create a new schedule from all dependencies
 create an AST from the schedule
 parse AST to julia code
 return expression
+
+if debug is set, ISL errors are printed to stderror
+if verbose is
+    0: no printing (unless debug is on, where ISL errors are printed)
+    1: final Julia code is printed
+    2: initial C code, loop orderings, new schedule, final C code, and final Julia code printed
+    3: all of 2 plus domain, access relations, dependence relations, original schedule, and new schedule constraints printed
 """
-function run_polyhedral_model(kernel::LoopKernel)::Expr
-    # init
+function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0)::Expr
+    """
+    initialize context and set error printing options to warn/silence
+    """
     context = ISL.API.isl_ctx_alloc()
-    ISL.API.isl_options_set_on_error(context, 0) # warn errors
+    if debug
+        ISL.API.isl_options_set_on_error(context, 0) # warn errors
+    else
+        ISL.API.isl_options_set_on_error(context, 1) # silence errors
+    end
 
-    # domain
+    """
+    get the domain (instructions) of the kernel
+    """
     instructions = ISL.API.isl_union_set_read_from_str(context, instructions_isl_rep(kernel))
+    if verbose >= 3
+        println("===DOMAIN===")
+        ISL.API.isl_union_set_dump(instructions)
+    end
 
-    # access patterns
+    """
+    construct the access relations
+    """
     may_read, may_write, must_write = accesses_isl_rep(kernel)
-    # @show may_read
-    # @show may_write
-    # @show must_write
+    if verbose >= 3
+        println("===ACCESS RELATIONS===")
+        @show may_read
+        @show may_write
+        @show must_write
+    end
     may_read = ISL.API.isl_union_map_read_from_str(context, may_read)
-    # println("GOT READ ACCESS")
     may_write = ISL.API.isl_union_map_read_from_str(context, may_write)
-    # println("GOT WRITE ACCESS")
     must_write = ISL.API.isl_union_map_read_from_str(context, must_write)
-    # println("GOT MUST WRITE ACCESS")
 
-    # original schedule
+    """
+    construct the original schedule
+    """
     schedule = schedule_tree_isl_rep(context, kernel.domains[1], kernel)
-    # ISL.API.isl_schedule_dump(schedule)
-    # println("DUMPED SCHEDULE")
+    if verbose >= 3
+        println("===ORIGINAL SCHEDULE===")
+        ISL.API.isl_schedule_dump(schedule)
+    end
+    if verbose >= 2
+        # show original code in C representation
+        space = ISL.API.isl_set_read_from_str(context, "{:}")
+        build = ISL.API.isl_ast_build_from_context(space)
+        ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
+        c = ISL.API.isl_ast_node_get_ctx(ast)
+        p = ISL.API.isl_printer_to_str(c)
+        p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+        q = ISL.API.isl_printer_print_ast_node(p, ast)
+        str = ISL.API.isl_printer_get_str(q)
+        str = Base.unsafe_convert(Ptr{Cchar}, str)
+        println("===ORIGINAL C CODE===")
+        println(Base.unsafe_string(str))
+    end
 
-    # show original code
-    space = ISL.API.isl_set_read_from_str(context, "{:}")
-    build = ISL.API.isl_ast_build_from_context(space)
-    ast = ISL.API.isl_ast_build_node_from_schedule(build, ISL.API.isl_schedule_copy(schedule))
-    c = ISL.API.isl_ast_node_get_ctx(ast)
-    p = ISL.API.isl_printer_to_str(c)
-    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    q = ISL.API.isl_printer_print_ast_node(p, ast)
-    str = ISL.API.isl_printer_get_str(q)
-    str = Base.unsafe_convert(Ptr{Cchar}, str)
-    println(Base.unsafe_string(str))
-    println("PRINTED ORIGINAL CODE")
-
+    """
+    dependency analysis
+    """
     # read after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(may_read))
     access = ISL.API.isl_union_access_info_set_must_source(access, ISL.API.isl_union_map_copy(must_write))
     access = ISL.API.isl_union_access_info_set_schedule(access, ISL.API.isl_schedule_copy(schedule))
     flow = ISL.API.isl_union_access_info_compute_flow(access)
     raw_deps = ISL.API.isl_union_flow_get_must_dependence(flow)
-    # ISL.API.isl_union_map_dump(raw_deps)
-    # println("DUMPED read-after-write DEPS")
-
     # write after read and write after write deps
     access = ISL.API.isl_union_access_info_from_sink(ISL.API.isl_union_map_copy(must_write))
     access = ISL.API.isl_union_access_info_set_must_source(access, must_write)
@@ -73,42 +99,53 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
     access = ISL.API.isl_union_access_info_set_schedule(access, schedule)
     flow = ISL.API.isl_union_access_info_compute_flow(access)
     waw_deps = ISL.API.isl_union_flow_get_must_dependence(flow)
-    # ISL.API.isl_union_map_dump(waw_deps)
-    # println("DUMPED write-after-write DEPS")
     war_deps = ISL.API.isl_union_flow_get_may_dependence(flow)
-    # ISL.API.isl_union_map_dump(war_deps)
-    # println("DUMPED write-after-read DEPS")
+    if verbose >= 3
+        println("===DEPENDENCIES (RAW, WAW, WAR)===")
+        ISL.API.isl_union_map_dump(raw_deps)
+        ISL.API.isl_union_map_dump(waw_deps)
+        ISL.API.isl_union_map_dump(war_deps)
+    end
 
-
-    # loop ordering
+    """
+    add loop ordering dependencies based on striding analysis
+    """
     loop_ordering_deps = get_loop_ordering_deps_isl(kernel)
-    @show loop_ordering_deps
+    if verbose >= 2
+        println("===LOOP ORDERINGS===")
+        @show loop_ordering_deps
+    end
     loop_ordering_deps = ISL.API.isl_union_map_read_from_str(context, loop_ordering_deps)
 
-    # use deps to construct new schedule validity constraints
+    """
+    construct new schedule constraints from dependencies
+    """
+    # dependence constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
     all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
     loop_ordering_deps = ISL.API.isl_union_map_union(ISL.API.isl_union_map_copy(all_deps), loop_ordering_deps)
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
     schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(loop_ordering_deps))
 
-    # proximity constraints (keeps elements nested where possible)
+    # proximity constraints (keeps loops nested based on dependencies)
     schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
 
-    # coincidence constraints
+    # coincidence constraints (things to be scheduled together- doesn't usually do much)
     # schedule_constraints = ISL.API.isl_schedule_constraints_set_coincidence(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
 
-    # ISL.API.isl_schedule_constraints_dump(schedule_constraints)
-    # println("DUMPED SCHEDULE CONSTRAINTS")
+    if verbose >= 3
+        println("===SCHEDULE CONSTRAINTS===")
+        ISL.API.isl_schedule_constraints_dump(schedule_constraints)
+    end
 
-    # schedule heuristics
+    # schedule heuristics (how to run scheduler)
 
-    # compute schedule
-    ISL.API.isl_options_set_on_error(context, 1) # silence error printing
+    """
+    compute the new schedule
+    """
     schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
-    ISL.API.isl_options_set_on_error(context, 0) # resume error printing
 
-    # handle scheduling error
+    # handle scheduling error (usually when loop orderings are illegal, try without)
     if ISL.API.isl_ctx_last_error_line(context) != -1
         # reset context error
         ISL.API.isl_ctx_reset_error(context)
@@ -119,33 +156,48 @@ function run_polyhedral_model(kernel::LoopKernel)::Expr
         schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
     end
 
-    # other modifications to schedule
+    # other modifications to schedule tree
 
-    # dump schedule
-    ISL.API.isl_schedule_dump(schedule)
-    println("DUMPED NEW SCHEDULE")
+    if verbose >= 2
+        println("===NEW SCHEDULE===")
+        ISL.API.isl_schedule_dump(schedule)
+    end
 
-    # construct AST from new schedule
+    """
+    construct AST from new schedule
+    """
     space = ISL.API.isl_set_read_from_str(context, "{:}")
     build = ISL.API.isl_ast_build_from_context(space)
     ast = ISL.API.isl_ast_build_node_from_schedule(build, schedule)
 
-    # print code
-    c = ISL.API.isl_ast_node_get_ctx(ast)
-    p = ISL.API.isl_printer_to_str(c)
-    p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
-    q = ISL.API.isl_printer_print_ast_node(p, ast)
-    str = ISL.API.isl_printer_get_str(q)
-    str = Base.unsafe_convert(Ptr{Cchar}, str)
-    println(Base.unsafe_string(str))
-    println("PRINTED NEW CODE")
+    if verbose >= 2
+        # print C code
+        c = ISL.API.isl_ast_node_get_ctx(ast)
+        p = ISL.API.isl_printer_to_str(c)
+        p = ISL.API.isl_printer_set_output_format(p, 4) # 4 = C code
+        q = ISL.API.isl_printer_print_ast_node(p, ast)
+        str = ISL.API.isl_printer_get_str(q)
+        str = Base.unsafe_convert(Ptr{Cchar}, str)
+        println("===FINAL C CODE===")
+        println(Base.unsafe_string(str))
+    end
 
-    # parse ast to Julia code
+    """
+    parse back to Julia code
+    """
     expr = parse_ast(ast, kernel)
-    @show expr
+    if verbose >= 1
+        println("===FINAL JULIA CODE===")
+        @show expr
+    end
     return expr
 end
 
+
+"""
+POLYHEDRAL MODEL GENERATION FUNCTIONS
+Julia -> ISL
+"""
 
 """
 helper to turn gensyms into strings without special characters
@@ -394,7 +446,6 @@ function get_loop_ordering_deps_isl(kernel::LoopKernel)::String
     count = 0
 
     loop_orderings = get_best_nesting_orders(kernel)
-    @show loop_orderings
 
     for order in loop_orderings
         for domain in kernel.domains
@@ -526,6 +577,11 @@ function schedule_tree_isl_rep(context::Ptr{ISL.API.isl_ctx}, domain::Domain, ke
     return schedule
 end
 
+
+"""
+PARSING FUNCTIONS
+ISL -> Julia
+"""
 
 """
 parse an isl AST back into julia code

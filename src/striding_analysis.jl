@@ -182,24 +182,3 @@ function get_best_nesting_orders(kernel::LoopKernel)::Set{Vector{Symbol}}
     end
     return nesting_orders
 end
-
-# """
-# reorders the loops in the original program to the best valid order
-# """
-# function reorder_loops(kernel::LoopKernel)::Set{Vector{Symbol}}
-#     nesting_orders = get_best_nesting_orders(kernel)
-#     for order in nesting_orders
-#         for (i, domain) in enumerate(kernel.domains)
-#             if domain.iname in order
-#                 # found original start of order
-#                 original_order = kernel.domains[i:i+length(order)]
-#                 for (i, iname) in enumerate(order)
-#                     if order[i] != original_order[i].iname
-#
-#                     end
-#                 end
-#                 break
-#             end
-#         end
-#     end
-# end
