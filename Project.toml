@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 ISL = "4d9053e4-97a6-4476-8996-fca684647641"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
