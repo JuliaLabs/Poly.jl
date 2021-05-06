@@ -849,7 +849,7 @@ function parse_ast_expr(expr::Ptr{ISL.API.isl_ast_expr})::Union{Symbol, Expr, Nu
         elseif op_type == ISL.API.isl_ast_expr_op_fdiv_q
             return :(Int(floor($arg1 / $arg2)))
         elseif op_type == ISL.API.isl_ast_expr_op_pdiv_q || op_type == ISL.API.isl_ast_expr_op_div
-            return :($arg1 / $arg2)
+            return :(Int($arg1 / $arg2))
         elseif op_type == ISL.API.isl_ast_expr_op_pdiv_r || op_type == ISL.API.isl_ast_expr_op_zdiv_r
             return :($arg1 % $arg2)
         elseif op_type == ISL.API.isl_ast_expr_op_eq

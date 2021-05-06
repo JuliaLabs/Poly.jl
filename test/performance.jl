@@ -352,19 +352,19 @@ end
         @test j.time != :regression
     end
 
-    @testset "inter-loop non-uniform dependence test" begin
-        DIM = 512
-        arr = zeros(DIM, DIM)
-
-        poly_interloop_nonuniform(arr) # allow for compiling once
-
-        t_poly = @benchmark poly_interloop_nonuniform(arr) setup=(arr = zeros($DIM, $DIM))
-        t_orig = @benchmark interloop_nonuniform(arr) setup=(arr = zeros($DIM, $DIM))
-
-        j = judge(minimum(t_poly), minimum(t_orig))
-
-        @test j.time != :regression
-    end
+    # @testset "inter-loop non-uniform dependence test" begin
+    #     DIM = 512
+    #     arr = zeros(DIM, DIM)
+    #
+    #     poly_interloop_nonuniform(arr) # allow for compiling once
+    #
+    #     t_poly = @benchmark poly_interloop_nonuniform(arr) setup=(arr = zeros($DIM, $DIM))
+    #     t_orig = @benchmark interloop_nonuniform(arr) setup=(arr = zeros($DIM, $DIM))
+    #
+    #     j = judge(minimum(t_poly), minimum(t_orig))
+    #
+    #     @test j.time != :regression
+    # end
 
     @testset "non-uniform dependence" begin
         DIM = 128

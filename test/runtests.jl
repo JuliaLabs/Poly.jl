@@ -169,6 +169,49 @@ using StaticArrays
         @test count == 10
     end
 
+    @testset "min/max test" begin
+        n = 10
+        m = 12
+        arr = zeros(n, m)
+
+        @poly_loop for i=1:max(n, 8)
+            for j=1:min(15, m)
+                arr[i, j] = 1
+            end
+        end
+
+        arr2 = zeros(n, m)
+
+        for i=1:max(n, 8)
+            for j=1:min(15, m)
+                arr2[i, j] = 1
+            end
+        end
+
+        @test arr == arr2
+    end
+
+    @testset "floor test" begin
+        n = 10
+        arr = zeros(n, n)
+
+        @poly_loop for i=1:floor(n/2)
+            for j=1:floor(n/2)
+                arr[i, j] = 1
+            end
+        end
+
+        arr2 = zeros(n, n)
+
+        for i=1:Int(floor(n/2))
+            for j=1:Int(floor(n/2))
+                arr2[i, j] = 1
+            end
+        end
+
+        @test arr == arr2
+    end
+
     @testset "non-uniform dependence" begin
         n = 64
         arr = ones(n, n)

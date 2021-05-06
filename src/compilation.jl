@@ -116,27 +116,30 @@ function set_kernel_consts(kernel::LoopKernel)
 
     # get all symbols in loop bounds (since must be constant)
     for domain in kernel.domains
-        union!(const_symbols, get_kernel_consts(domain.lowerbound))
-        union!(const_symbols, get_kernel_consts(domain.upperbound))
-        union!(const_symbols, get_kernel_consts(domain.step))
+        union!(const_symbols, get_kernel_consts(domain.lowerbound, domain_inames))
+        union!(const_symbols, get_kernel_consts(domain.upperbound, domain_inames))
+        union!(const_symbols, get_kernel_consts(domain.step, domain_inames))
     end
 
     append!(kernel.consts, const_symbols)
 end
 
-function get_kernel_consts(ex::Expr)::Set{Symbol}
+function get_kernel_consts(ex::Expr, domain_inames::Vector{Symbol})::Set{Symbol}
     const_symbols = Set{Symbol}()
     for arg in ex.args[2:end]
-        union!(const_symbols, get_kernel_consts(arg))
+        union!(const_symbols, get_kernel_consts(arg, domain_inames))
     end
     return const_symbols
 end
 
-function get_kernel_consts(sym::Symbol)::Set{Symbol}
-    return Set([sym])
+function get_kernel_consts(sym::Symbol, domain_inames::Vector{Symbol})::Set{Symbol}
+    if !(sym in domain_inames)
+        return Set([sym])
+    end
+    return Set()
 end
 
-function get_kernel_consts(any)::Set{Symbol}
+function get_kernel_consts(any, domain_inames::Vector{Symbol})::Set{Symbol}
     return Set()
 end
 
