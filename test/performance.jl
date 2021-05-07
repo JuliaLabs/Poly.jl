@@ -87,7 +87,9 @@ function poly_array_double(A, out)
     n = size(out, 1)
 
     @poly_loop for i = 1:n
-        out[i] = A[i]*2
+        for j = 1:n
+            out[i, j] = A[i, j]*2
+        end
     end
 end
 
@@ -95,7 +97,9 @@ function array_double(A, out)
     n = size(out, 1)
 
     for i = 1:n
-        out[i] = A[i]*2
+        for j = 1:n
+            out[i, j] = A[i, j]*2
+        end
     end
 end
 
@@ -294,13 +298,13 @@ end
 
     @testset "array double" begin
         DIM = 512
-        A = rand(DIM)
-        out = zeros(DIM)
+        A = rand(DIM, DIM)
+        out = zeros(DIM, DIM)
 
         poly_array_double(A, out) # allow for compiling once
 
-        t_poly = @benchmark poly_array_double($A, out) setup=(out = zeros($DIM))
-        t_orig = @benchmark array_double($A, out) setup=(out = zeros($DIM))
+        t_poly = @benchmark poly_array_double($A, out) setup=(out = zeros($DIM, $DIM))
+        t_orig = @benchmark array_double($A, out) setup=(out = zeros($DIM, $DIM))
 
         j = judge(minimum(t_poly), minimum(t_orig))
 
@@ -367,7 +371,7 @@ end
     # end
 
     @testset "non-uniform dependence" begin
-        DIM = 128
+        DIM = 512
         arr = ones(DIM, DIM)
 
         poly_nonuniform(arr) # allow for compiling once
