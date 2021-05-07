@@ -334,4 +334,4 @@ using StaticArrays
 
 end
 
-include("performance.jl")
+include("performancetests.jl")

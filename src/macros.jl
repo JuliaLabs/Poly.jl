@@ -1,34 +1,38 @@
 using JuLoop
-export @poly_loop, @depends_on
+export @poly_loop, @depends_on, sub_sym_in_ex
 using MacroTools
 
 
 """
-helpers for evaluating an expression in mod
-will error if symbols are not in global scope
+helpers for substituting values for symbols in an expression
+    will sub an interpolated symbol for the value as well as a non-interpolated symbol
 """
-function eval_ex_in_mod(ex::Expr, mod::Module)::Number
-    op = ex.args[1]
-    new_args = []
-    for arg in ex.args[2:end]
-        push!(new_args, eval_ex_in_mod(arg, mod))
+function sub_sym_in_ex(ex::Expr, sub_sym::Symbol, val::Number)
+    if ex.head == :$ && ex.args[1] == sub_sym
+        return val
     end
-    new_ex = Expr(ex.head, op, new_args...)
-    return eval(new_ex)
+    new_args = []
+    for arg in ex.args
+        push!(new_args, sub_sym_in_ex(arg, sub_sym, val))
+    end
+    return Expr(ex.head, new_args...)
 end
 
-function eval_ex_in_mod(sym::Symbol, mod::Module)
-    return eval(quote $mod.$sym end)
+function sub_sym_in_ex(sym::Symbol, sub_sym::Symbol, val::Number)
+    if sym == sub_sym
+        return val
+    end
+    return sym
 end
 
-function eval_ex_in_mod(num::Number, mod::Module)::Number
-    return num
+function sub_sym_in_ex(any, sub_sym::Symbol, val::Number)
+    return any
 end
 
 """
 helper for macro
 """
-function poly_loop(ex::Expr, mod::Module; parent_doms=[])::LoopKernel
+function poly_loop(ex::Expr; parent_doms=[])::LoopKernel
     # generate loop domain
     bounds = ex.args[1]
     iname = bounds.args[1]
@@ -58,7 +62,7 @@ function poly_loop(ex::Expr, mod::Module; parent_doms=[])::LoopKernel
     for line in body.args
         if typeof(line) == Expr && line.head == :for
             # nested loops
-            subkern = poly_loop(line, mod, parent_doms=new_parent_doms)
+            subkern = poly_loop(line, parent_doms=new_parent_doms)
             append!(instructions, subkern.instructions)
             append!(domains, subkern.domains)
             push!(dom.instructions, subkern.domains[1])
@@ -149,7 +153,6 @@ Indexing:
 
 """
 macro poly_loop(ex0...)
-    mod = __module__ # get module calling macro
     if length(ex0) > 3
         error("expected at most 2 options and a loop, got: ", length(ex0), "elements")
     end
@@ -185,15 +188,35 @@ macro poly_loop(ex0...)
 
     ex0 = ex0[end] # expression is last arg
 
-    if ex0.head == :for
-        kernel = poly_loop(ex0, mod)
-    else
+    if ex0.head != :for
         error("expected a for loop, got: ", ex0.head)
     end
 
-    # make kernel
-    expr = MacroTools.prettify(compile_expr(kernel, debug=debug, verbose=verbose))
-    esc(quote
-        $(expr)
-    end)
+    liftedex = copy(ex0)
+    letargs = Base._lift_one_interp!(liftedex)
+    if letargs != []
+        # have interpolation, need to evaluate at runtime to get values of symbols
+        arg = letargs[1]
+        newsymbol = arg.args[2].args[1]
+        quote
+            @generated function delay_poly_loop(::Val{N}) where N
+                expr = $(QuoteNode(ex0))
+                sym = $(QuoteNode(newsymbol))
+                d = $(QuoteNode(debug))
+                v = $(QuoteNode(verbose))
+                newex = sub_sym_in_ex(expr, sym, N)
+                kernel = poly_loop(newex)
+                expr = MacroTools.prettify(compile_expr(kernel, debug=d, verbose=v))
+                expr
+            end
+            delay_poly_loop(Val($(esc(newsymbol))))
+        end
+    else
+        # make kernel
+        kernel = poly_loop(ex0)
+        expr = MacroTools.prettify(compile_expr(kernel, debug=debug, verbose=verbose))
+        esc(quote
+            $(expr)
+        end)
+    end
 end
