@@ -2,7 +2,7 @@ using JuLoop
 using Test
 using StaticArrays
 
-@testset "JuLoop.jl" begin
+@testset "correctness tests" begin
     @testset "basic non-macro test" begin
         # multiply arrays and double
         instructions = [Instruction(:mult, :(out[i, j] += A[i, k] * B[k, j]), Set([:i, :j, :k])),

@@ -249,7 +249,7 @@ function lu(PA, L, U)
     end
 end
 
-@testset "JuLoop.jl" begin
+@testset "performance tests" begin
 
     @testset "automatic loop reordering" begin
         # test matrix mul wrong loop order (check automatic reordering)
@@ -264,11 +264,11 @@ end
         t_orig = @benchmark mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
         t_right_order = @benchmark mul_right_order($A, $B, out) setup=(out = zeros($DIM, $DIM))
 
-        r = ratio(minimum(t_orig), minimum(t_poly))
-        j = judge(minimum(t_poly), minimum(t_right_order))
+        jorig = judge(minimum(t_poly), minimum(t_orig))
+        jright = judge(minimum(t_poly), minimum(t_right_order))
 
-        @test r.time > 6 # want at least 6x speedup over bad order
-        @test j.time != :regression # want comparable or better than right order
+        @test jorig.time == :improvement # want an improvement over bad order
+        @test jright.time != :regression # want comparable or better than right order
     end
 
     # @testset "automatic tiling" begin
