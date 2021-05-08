@@ -30,9 +30,33 @@ function sub_sym_in_ex(any, sub_sym::Symbol, val::Number)
 end
 
 """
+get instructions out of block with cond
+"""
+function get_insts_in_block(args, cond::Expr, parent_doms::Vector{Domain}, dom::Domain)::Vector{Instruction}
+    instructions = []
+    for arg in args
+        if typeof(arg) != LineNumberNode
+            symbol = arg
+            while typeof(symbol) != Symbol
+                symbol = symbol.args[1]
+            end
+            iname = gensym(string(symbol))
+            inst = Instruction(iname, arg, Set(), cond)
+            for d in parent_doms
+                push!(inst.dependencies, d.iname)
+            end
+            push!(inst.dependencies, dom.iname)
+            push!(dom.instructions, inst)
+            push!(instructions, inst)
+        end
+    end
+    return instructions
+end
+
+"""
 helper for macro
 """
-function poly_loop(ex::Expr; parent_doms=[])::LoopKernel
+function poly_loop(ex::Expr; parent_doms=Domain[])::LoopKernel
     # generate loop domain
     bounds = ex.args[1]
     iname = bounds.args[1]
@@ -70,13 +94,41 @@ function poly_loop(ex::Expr; parent_doms=[])::LoopKernel
                 push!(subkern.domains[1].dependencies, d.iname)
             end
             push!(subkern.domains[1].dependencies, dom.iname)
+        elseif typeof(line) == Expr && line.head == :if
+            # if block
+            ifcond = line.args[1]
+            # instructions in if block
+            append!(instructions, get_insts_in_block(line.args[2].args, ifcond, parent_doms, dom))
+            # elseif or else or both
+            if length(line.args) == 3
+                rest = line.args[3]
+                if rest.head == :elseif
+                    # elseif block
+                    elifcond = rest.args[1].args[2] # since line number node
+                    elifcond = :($elifcond && !($ifcond))
+                    # instructions in elseif block
+                    append!(instructions, get_insts_in_block(rest.args[2].args, elifcond, parent_doms, dom))
+                    # else block also
+                    if length(rest.args) == 3
+                        # else block
+                        elsecond = :(!($ifcond) && !($elifcond))
+                        # instructions in else block
+                        append!(instructions, get_insts_in_block(rest.args[3].args, elsecond, parent_doms, dom))
+                    end
+                else
+                    # else block
+                    elsecond = :(!($ifcond))
+                    # instructions in else block
+                    append!(instructions, get_insts_in_block(rest.args[2].args, elsecond, parent_doms, dom))
+                end
+            end
         elseif typeof(line) != LineNumberNode
             symbol = line
             while typeof(symbol) != Symbol
                 symbol = symbol.args[1]
             end
             iname = gensym(string(symbol))
-            inst = Instruction(iname, line, Set())
+            inst = Instruction(iname, line, Set(), :())
             push!(instructions, inst)
             for d in parent_doms
                 push!(inst.dependencies, d.iname)
@@ -166,8 +218,12 @@ Indexing:
                 A[t] = 1
             end
 
+If blocks:
+    If blocks must contain conditions on the loop iterators and constants only (not on any elements of an array, for example)
+
 """
 macro poly_loop(ex0...)
+    @show ex0
     if length(ex0) > 3
         error("expected at most 2 options and a loop, got: ", length(ex0), "elements")
     end

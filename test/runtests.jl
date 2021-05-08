@@ -5,8 +5,8 @@ using StaticArrays
 @testset "correctness tests" begin
     @testset "basic non-macro test" begin
         # multiply arrays and double
-        instructions = [Instruction(:mult, :(out[i, j] += A[i, k] * B[k, j]), Set([:i, :j, :k])),
-                        Instruction(:double, :(out[i, j] *= 2), Set([:i, :j]))]
+        instructions = [Instruction(:mult, :(out[i, j] += A[i, k] * B[k, j]), Set([:i, :j, :k]), :()),
+                        Instruction(:double, :(out[i, j] *= 2), Set([:i, :j]), :())]
 
         dom_k = Domain(:k, 1, :(r), 1, Set([:j]), [instructions[1]])
         dom_j = Domain(:j, 1, :(m), 1, Set([:i]), [dom_k, instructions[2]])
@@ -30,7 +30,7 @@ using StaticArrays
     @testset "basic non-macro test 2" begin
         # add arrays with global offset
         offset = 4
-        instructions = [Instruction(:add, :(out[i, j] = A[i, j] + B[i, j] + offset), Set([:i, :j]))]
+        instructions = [Instruction(:add, :(out[i, j] = A[i, j] + B[i, j] + offset), Set([:i, :j]), :())]
 
         dom_j = Domain(:j, 1, :(m), 1, Set([:i]), [instructions[1]])
         dom_i = Domain(:i, 1, :(n), 1, Set(), [dom_j])

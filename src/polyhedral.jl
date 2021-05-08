@@ -238,6 +238,21 @@ end
 
 
 """
+format a condition on an instruction properly
+"""
+function format_instruction_cond(cond::Expr)::String
+    stringcond = string(cond)
+    stringcond = replace.(stringcond, r"%" => " mod ")
+    stringcond = replace.(stringcond, r"==" => " = ")
+    stringcond = replace.(stringcond, r"&&" => " and ")
+    stringcond = replace.(stringcond, r"&" => " and ")
+    stringcond = replace.(stringcond, "||" => " or ")
+    stringcond = replace.(stringcond, "|" => " or ")
+    return stringcond
+end
+
+
+"""
 helper to get the domains related to instruction(s) in the ISL format
 ex: 0 <= i <= n and 0 <= j <= n
 """
@@ -246,22 +261,23 @@ function get_instructions_domains(instructions::Vector{Instruction}, kernel::Loo
     conditions = ""
     count = 1
     for domain in kernel.domains
-        use = false
         for instruction in instructions
             if domain.iname in instruction.dependencies
-                use = true
-            end
-        end
-        if use
-            if count != 1
-                conditions = string(conditions, " and ")
-            end
-            count += 1
-            if domain.step != 1
-                identifier = unique_identifier()
-                conditions = string(conditions, @sprintf("exists %s: %s = %s*%s + %s and %s <= %s <= %s", identifier, string(domain.iname), string(domain.step), identifier, string(domain.lowerbound), string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
-            else
-                conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)))
+                if count != 1
+                    conditions = string(conditions, " and ")
+                end
+                count += 1
+                instructioncond = ""
+                if instruction.cond != :()
+                    # instruction has separate domain condition
+                    instructioncond = string(" and ", format_instruction_cond(instruction.cond))
+                end
+                if domain.step != 1
+                    identifier = unique_identifier()
+                    conditions = string(conditions, @sprintf("exists %s: %s = %s*%s + %s and %s <= %s <= %s", identifier, string(domain.iname), string(domain.step), identifier, string(domain.lowerbound), string(domain.lowerbound), string(domain.iname), string(domain.upperbound)), instructioncond)
+                else
+                    conditions = string(conditions, @sprintf("%s <= %s <= %s", string(domain.lowerbound), string(domain.iname), string(domain.upperbound)), instructioncond)
+                end
             end
         end
     end

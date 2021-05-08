@@ -9,15 +9,17 @@ Args:
     iname: symbol representing instruction
     body: expression in the instruction
     dependencies: ids of instructions that this instruction depends on
+    cond: expression for condition of this instruction, if instruction is in an if/elseif/else block
 
 Example Instruction:
->>> instructions = [Instruction(:mult, :(out[i, j] += A[i, k] * B[k, j]), Set()),
-                    Instruction(:double, :(out[i, j] *= 2), Set([:mult]))]
+>>> instructions = [Instruction(:mult, :(out[i, j] += A[i, k] * B[k, j], :()), Set()),
+                    Instruction(:double, :(out[i, j] *= 2), Set([:mult])), :()]
 """
 struct Instruction
     iname::Symbol
     body::Expr
     dependencies::Set{Symbol}
+    cond::Expr
 end
 
 Base.show(io::IO, d::Instruction) = print(io, d.iname)
@@ -34,9 +36,9 @@ Args:
     instructions: instructions in the body of this domain (assigned after initialization)
 
 Example Domain:
->>> domains = [Domain(:i, 1, :(size(out, 1)), :(i += 1), Set(), []),
-               Domain(:j, 1, :(size(out, 2)), :(j += 1), Set(), []),
-               Domain(:k, 1, :(size(A, 2)), :(k += 1), Set(), [])]
+>>> domains = [Domain(:i, 1, :(size(out, 1)), 1, Set(), []),
+               Domain(:j, 1, :(size(out, 2)), 1, Set(), []),
+               Domain(:k, 1, :(size(A, 2)), 1, Set(), [])]
 """
 struct Domain
     iname::Symbol
@@ -57,6 +59,7 @@ Args:
     domains: list of ISL SimpleSet domains
     args: arguments to kernel
     argtypes: types of arguments to kernel
+    consts: constants in kernel
 
 Example LoopKernel:
 >>> kern = LoopKernel(instructions, domains, [:out, :A, :B], [Array{Float64, 2}, Array{Float64, 2}, Array{Float64, 2}], [])
