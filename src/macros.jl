@@ -119,7 +119,7 @@ function poly_loop(ex::Expr; parent_doms=Domain[])::LoopKernel
                     # else block
                     elsecond = :(!($ifcond))
                     # instructions in else block
-                    append!(instructions, get_insts_in_block(rest.args[2].args, elsecond, parent_doms, dom))
+                    append!(instructions, get_insts_in_block(rest.args, elsecond, parent_doms, dom))
                 end
             end
         elseif typeof(line) != LineNumberNode
@@ -223,7 +223,6 @@ If blocks:
 
 """
 macro poly_loop(ex0...)
-    @show ex0
     if length(ex0) > 3
         error("expected at most 2 options and a loop, got: ", length(ex0), "elements")
     end

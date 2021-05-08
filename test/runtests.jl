@@ -214,13 +214,129 @@ using StaticArrays
         @test arr == arr2
     end
 
+    @testset "if block test" begin
+        # tests that an if block works
+        n = 10
+        arr = zeros(n)
+
+        @poly_loop for i=1:n
+            if i % 2 == 0
+                arr[i] = 1
+            end
+        end
+
+        arr2 = zeros(n)
+
+        for i=1:n
+            if i % 2 == 0
+                arr2[i] = 1
+            end
+        end
+
+        @test arr == arr2
+    end
+
+    @testset "if/elseif block test" begin
+        # tests that an if/elseif block works
+        n = 10
+        arr = zeros(n, n)
+
+        @poly_loop for i=1:n
+            for j=1:n
+                if i % 2 == 0
+                    arr[i, j] = 1
+                elseif j % 2 == 0
+                    arr[i, j] = 2
+                end
+            end
+        end
+
+        arr2 = zeros(n, n)
+
+        for i=1:n
+            for j=1:n
+                if i % 2 == 0
+                    arr2[i, j] = 1
+                elseif j % 2 == 0
+                    arr2[i, j] = 2
+                end
+            end
+        end
+
+        @test arr == arr2
+    end
+
+    @testset "if/elseif/else block test" begin
+        # tests that an if/elseif/else block works
+        n = 10
+        arr = zeros(n, n)
+
+        @poly_loop for i=1:n
+            for j=1:n
+                if i % 2 == 0
+                    arr[i, j] = 1
+                elseif (j + n) % 2 == 0
+                    arr[i, j] = 2
+                else
+                    arr[i, j] = 3
+                end
+            end
+        end
+
+        arr2 = zeros(n, n)
+
+        for i=1:n
+            for j=1:n
+                if i % 2 == 0
+                    arr2[i, j] = 1
+                elseif (j + n) % 2 == 0
+                    arr2[i, j] = 2
+                else
+                    arr2[i, j] = 3
+                end
+            end
+        end
+
+        @test arr == arr2
+    end
+
+    @testset "if/else block test" begin
+        # tests that an if/else block works
+        n = 10
+        arr = zeros(n, n)
+
+        @poly_loop for i=1:n
+            for j=1:n
+                if n % 2 == 0
+                    arr[i, j] = 1
+                else
+                    arr[i, j] = 2
+                end
+            end
+        end
+
+        arr2 = zeros(n, n)
+
+        for i=1:n
+            for j=1:n
+                if n % 2 == 0
+                    arr2[i, j] = 1
+                else
+                    arr2[i, j] = 2
+                end
+            end
+        end
+
+        @test arr == arr2
+    end
+
     @testset "interpolation test 1" begin
         # checks that interpolation works
         c = 2
         n = 10
         arr = zeros(n)
 
-        @poly_loop verbose=3 for i=1:$c:n
+        @poly_loop for i=1:$c:n
             arr[i] = 1
         end
 
@@ -240,7 +356,7 @@ using StaticArrays
         m = 9
         arr = zeros(n, m)
 
-        @poly_loop verbose=3 for i=1:$c:$n
+        @poly_loop for i=1:$c:$n
             for j=1:$d:$m
                 arr[i, j] = 1
             end
@@ -346,7 +462,7 @@ using StaticArrays
         tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
         tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
 
-        @poly_loop verbose=3 for gj = 0:$TILE_DIM:N-1
+        @poly_loop for gj = 0:$TILE_DIM:N-1
             for gi = 0:$TILE_DIM:N-1
                 # loop over tiles needed for this calculation
                 for t = 0:$TILE_DIM:N
