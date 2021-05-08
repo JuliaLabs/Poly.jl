@@ -90,6 +90,13 @@ function poly_loop(ex::Expr; parent_doms=[])::LoopKernel
     return kern
 end
 
+"""
+helper to get the value in a value
+"""
+function __get(::Type{Val{N}}) where N
+    return N
+end
+
 
 """
 Used to allow for code generation and restructuring of a for loop. May reorder some instructions (including loop orderings) and vectorize code. Only the outermost loop should use the macro. The other loops will be handled by the outermost macro
@@ -134,6 +141,14 @@ Functions:
 Loop names:
     All loop iterators must have unique names, even if in different scopes. This is so an original schedule can be extracted from the code.
 
+Interpolation:
+    ISL does not work with non-numerical striding. So, this macro supports interpolating the values into the function so that ISL has access to the numerical values (and non-numerical strides MUST be interpolated). This delays the analysis to runtime, so it is advised that interpolated values are typically constant so that compilation does not occur over and over
+    Ex:
+        @poly_loop for i=1:\$c:n
+            arr[i] = 1
+        end
+    In addition, any constants can be interpolated, and sometimes this may improve the performance of ISL. Numerical bounds can help with tiling and inference on spaces. However, it is important that interpolated values are actually constants, or very rarely change, so that this delayed compilation does not occur regularly during runtime.
+
 Indexing:
     All array indices must be in terms of loop bounds or constants, not of variables. For example,
             c = i + j
@@ -147,7 +162,7 @@ Indexing:
                 A[TILE_SIZE*t] = 1
             end
         Would need to become this:
-            @poly_loop for t=1:TILE_SIZE:NUM_TILES
+            @poly_loop for t=1:\$TILE_SIZE:NUM_TILES
                 A[t] = 1
             end
 
@@ -196,20 +211,33 @@ macro poly_loop(ex0...)
     letargs = Base._lift_one_interp!(liftedex)
     if letargs != []
         # have interpolation, need to evaluate at runtime to get values of symbols
-        arg = letargs[1]
-        newsymbol = arg.args[2].args[1]
+        sub_symbols = []
+        # gather all the symbols that need to be replaced
+        for arg in letargs
+            push!(sub_symbols, arg.args[2].args[1])
+        end
+        # compile the Val() expressions that will be passed to the generated function
+        exprs = []
+        for sym in sub_symbols
+            push!(exprs, Expr(:call, :Val, Expr(:escape, sym)))
+        end
         quote
-            @generated function delay_poly_loop(::Val{N}) where N
+            # generated function will have the values of the symbols for replacing at runtime
+            @generated function delay_poly_loop(vals...)
                 expr = $(QuoteNode(ex0))
-                sym = $(QuoteNode(newsymbol))
+                syms = $(QuoteNode(sub_symbols))
                 d = $(QuoteNode(debug))
                 v = $(QuoteNode(verbose))
-                newex = sub_sym_in_ex(expr, sym, N)
-                kernel = poly_loop(newex)
+                for (i, val) in enumerate(vals)
+                    N = __get(val)
+                    expr = sub_sym_in_ex(expr, syms[i], N)
+                end
+                kernel = poly_loop(expr)
                 expr = MacroTools.prettify(compile_expr(kernel, debug=d, verbose=v))
+                # use the compiled expression
                 expr
             end
-            delay_poly_loop(Val($(esc(newsymbol))))
+            delay_poly_loop($(exprs...))
         end
     else
         # make kernel

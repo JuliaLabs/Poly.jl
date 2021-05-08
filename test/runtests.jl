@@ -170,6 +170,7 @@ using StaticArrays
     end
 
     @testset "min/max test" begin
+        # checks that min and max functions work
         n = 10
         m = 12
         arr = zeros(n, m)
@@ -192,6 +193,7 @@ using StaticArrays
     end
 
     @testset "floor test" begin
+        # tests that floor function works
         n = 10
         arr = zeros(n, n)
 
@@ -205,6 +207,48 @@ using StaticArrays
 
         for i=1:Int(floor(n/2))
             for j=1:Int(floor(n/2))
+                arr2[i, j] = 1
+            end
+        end
+
+        @test arr == arr2
+    end
+
+    @testset "interpolation test 1" begin
+        # checks that interpolation works
+        c = 2
+        n = 10
+        arr = zeros(n)
+
+        @poly_loop verbose=3 for i=1:$c:n
+            arr[i] = 1
+        end
+
+        arr2 = zeros(n)
+        for i=1:c:n
+            arr2[i] = 1
+        end
+
+        @test arr == arr2
+    end
+
+    @testset "interpolation test 2" begin
+        # checks that multiple 2d interpolation works
+        c = 2
+        d = 3
+        n = 10
+        m = 9
+        arr = zeros(n, m)
+
+        @poly_loop verbose=3 for i=1:$c:$n
+            for j=1:$d:$m
+                arr[i, j] = 1
+            end
+        end
+
+        arr2 = zeros(n, m)
+        for i=1:c:n
+            for j=1:d:m
                 arr2[i, j] = 1
             end
         end
@@ -290,47 +334,47 @@ using StaticArrays
         @test isapprox(PA, L*U)
     end
 
-    # @testset "tiled matrix multiplication" begin
-    #     # test macros complicated (tiled matrix multiplication)
-    #     N = 128
-    #
-    #     A = rand(N, N)
-    #     B = rand(N, N)
-    #     C = zeros(N, N)
-    #
-    #     TILE_DIM = 32
-    #     tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
-    #     tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
-    #
-    #     @poly_loop for gj = 0:TILE_DIM:N-1
-    #         for gi = 0:TILE_DIM:N-1
-    #             # loop over tiles needed for this calculation
-    #             for t = 0:TILE_DIM:N
-    #                 # load tiles needed for calculation
-    #                 for j = 1:TILE_DIM
-    #                     for i = 1:TILE_DIM
-    #                         # get tile1 and tile2 values
-    #                         tile1[i, j] = A[gi + i, t + j]
-    #                         tile2[i, j] = B[t + i, gj + j]
-    #                     end
-    #                 end
-    #                 # synchronize
-    #                 # loop over tiles to calculate for I, J spot
-    #                 for jj in 1:TILE_DIM
-    #                     # loop over row/col in tiles
-    #                     for k = 1:TILE_DIM
-    #                         for ii = 1:TILE_DIM
-    #                             # add tile1 * tile2
-    #                             C[gi + ii, gj + jj] += tile1[ii, k] * tile2[k, jj]
-    #                         end
-    #                     end
-    #                 end
-    #             end
-    #         end
-    #     end
-    #
-    #     @test isapprox(C, A*B)
-    # end
+    @testset "tiled matrix multiplication" begin
+        # test macros complicated (tiled matrix multiplication)
+        N = 128
+
+        A = rand(N, N)
+        B = rand(N, N)
+        C = zeros(N, N)
+
+        TILE_DIM = 32
+        tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
+        tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
+
+        @poly_loop verbose=3 for gj = 0:$TILE_DIM:N-1
+            for gi = 0:$TILE_DIM:N-1
+                # loop over tiles needed for this calculation
+                for t = 0:$TILE_DIM:N
+                    # load tiles needed for calculation
+                    for j = 1:$TILE_DIM
+                        for i = 1:$TILE_DIM
+                            # get tile1 and tile2 values
+                            tile1[i, j] = A[gi + i, t + j]
+                            tile2[i, j] = B[t + i, gj + j]
+                        end
+                    end
+                    # synchronize
+                    # loop over tiles to calculate for I, J spot
+                    for jj in 1:$TILE_DIM
+                        # loop over row/col in tiles
+                        for k = 1:$TILE_DIM
+                            for ii = 1:$TILE_DIM
+                                # add tile1 * tile2
+                                C[gi + ii, gj + jj] += tile1[ii, k] * tile2[k, jj]
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        @test isapprox(C, A*B)
+    end
 
 end
 

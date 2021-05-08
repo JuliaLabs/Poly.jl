@@ -7,5 +7,4 @@
 JuLoop can reorder loops, change iteration spaces, reorder instructions, and restructure code. The main goal is to allow for vectorization and efficient loop execution
 
 ### Macros
-@poly_loop can be used to tag a loop for code restructuring by JuLoop. Only the outermost loop should use the macro.
-@depends_on marks an instruction dependency in order to declare explicit dependencies for code restructuring.
+@poly_loop can be used to tag a loop for code restructuring by JuLoop, using the polyhedral model of compilation. This can result in automatic loop reordering, domain coalescing, tiling, and more, specifically with memory locality and vectorization in mind. See the documentation for details on how to use @poly_loop.
