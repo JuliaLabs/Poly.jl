@@ -149,6 +149,8 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     ISL.API.isl_options_set_schedule_treat_coalescing(context, 1)
     # step over tile dim
     ISL.API.isl_options_set_tile_scale_tile_loops(context, 1)
+    # don't start at 0 for tiles (cleans up code for 1-indexed Julia)
+    ISL.API.isl_options_set_tile_shift_point_loops(context, 0)
 
     """
     compute the new schedule

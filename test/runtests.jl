@@ -393,9 +393,12 @@ using StaticArrays
 
     @testset "basic matmul" begin
         # test macros basic matmul
-        A = rand(10, 10)
-        B = rand(10, 10)
-        out = zeros(10, 10)
+        n = 512
+        r = 512
+        m = 512
+        A = rand(n, r)
+        B = rand(r, m)
+        out = zeros(n, m)
         n = size(out, 1)
         m = size(out, 2)
         r = size(A, 2)

@@ -12,8 +12,8 @@ finds square tiles
 returns: isl_multi_val representation of tiling sizes
 """
 function tiling_sizes(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.API.isl_ctx})::Ptr{ISL.API.isl_multi_val}
-    size = Hwloc.l1cache_sizes()[1]
-    linesize = Hwloc.l1cache_linesizes()[1]
+    size = Hwloc.l1cache_sizes()[1]/sizeof(Float64)
+    linesize = Hwloc.l1cache_linesizes()[1]/sizeof(Float64)
     tiles = Int[]
     tile_size = Int(floor(min(linesize, size^(1/n))))
     band_space = ISL.API.isl_schedule_node_band_get_space(band)
