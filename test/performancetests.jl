@@ -16,6 +16,19 @@ function poly_mul(A, B, out)
     end
 end
 
+function poly_mul_no_tile(A, B, out)
+    n = size(out, 1)
+    m = size(out, 2)
+    r = size(A, 2)
+    @poly_loop tile=0 for i = 1:n
+        for j = 1:m
+            for k = 1:r
+                out[i, j] += A[i, k] * B[k, j]
+            end
+        end
+    end
+end
+
 function mul(A, B, out)
     n = size(out, 1)
     m = size(out, 2)
@@ -204,9 +217,9 @@ end
         B = rand(DIM, DIM)
         out = zeros(DIM, DIM)
 
-        poly_mul(A, B, out) # allow for compiling once
+        poly_mul_no_tile(A, B, out) # allow for compiling once
 
-        t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
+        t_poly = @benchmark poly_mul_no_tile($A, $B, out) setup=(out = zeros($DIM, $DIM))
         t_orig = @benchmark mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
         t_right_order = @benchmark mul_right_order($A, $B, out) setup=(out = zeros($DIM, $DIM))
 
