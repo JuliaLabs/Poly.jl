@@ -22,7 +22,7 @@ struct Instruction
     cond::Expr
 end
 
-Base.show(io::IO, d::Instruction) = print(io, d.iname)
+# Base.show(io::IO, d::Instruction) = print(io, d.iname)
 
 
 """
@@ -49,7 +49,7 @@ struct Domain
     instructions::Vector{Union{Instruction, Domain}}
 end
 
-Base.show(io::IO, d::Domain) = print(io, d.iname)
+# Base.show(io::IO, d::Domain) = print(io, d.iname)
 
 
 """

@@ -145,7 +145,10 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     ISL.API.isl_options_set_schedule_maximize_band_depth(context, 1)
     # schedule weakly-connected components together
     ISL.API.isl_options_set_schedule_whole_component(context, 1)
+    # avoid coalescing if possible
     ISL.API.isl_options_set_schedule_treat_coalescing(context, 1)
+    # step over tile dim
+    ISL.API.isl_options_set_tile_scale_tile_loops(context, 1)
 
     """
     compute the new schedule
@@ -178,6 +181,10 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     if verbose >= 2
         println("===NEW SCHEDULE===")
         ISL.API.isl_schedule_dump(schedule)
+    end
+    if verbose >= 3
+        println("===DOMAIN AFTER TILING===")
+        ISL.API.isl_union_set_dump(ISL.API.isl_schedule_get_domain(schedule))
     end
 
     """
@@ -675,7 +682,7 @@ function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
         cond = parse_ast_expr(ISL.API.isl_ast_node_for_get_cond(ast)) # final condition
         ub = cond.args[3]
         if cond.args[1] == :(<)
-            ub = :($ub + 1)
+            ub = :($ub - 1)
         elseif cond.args[1] != :(<=)
             error("unexpected conditional operator ", cond.head)
         end
