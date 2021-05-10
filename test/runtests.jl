@@ -375,7 +375,7 @@ using StaticArrays
     @testset "non-uniform dependence" begin
         n = 64
         arr = ones(n, n)
-        @poly_loop for i = 1:n
+        @poly_loop tile=0 for i = 1:n
             for j = 3:n
                 arr[i, j] = arr[j, i] + arr[i, j-1]
             end
@@ -462,7 +462,7 @@ using StaticArrays
         tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
         tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
 
-        @poly_loop for gj = 0:$TILE_DIM:N-1
+        @poly_loop tile=0 for gj = 0:$TILE_DIM:N-1
             for gi = 0:$TILE_DIM:N-1
                 # loop over tiles needed for this calculation
                 for t = 0:$TILE_DIM:N

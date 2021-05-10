@@ -26,7 +26,7 @@ if verbose is
     2: initial C code, loop orderings, new schedule, final C code, and final Julia code printed
     3: all of 2 plus domain, access relations, dependence relations, original schedule, and new schedule constraints printed
 """
-function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0)::Expr
+function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-1)::Expr
     """
     initialize context and set error printing options to warn/silence
     """
@@ -163,7 +163,17 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0)::Expr
         schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
     end
 
-    # other modifications to schedule tree
+    if verbose >= 3
+        println("===NEW SCHEDULE PRE TILING===")
+        ISL.API.isl_schedule_dump(schedule)
+    end
+
+    """
+    tiling of band nodes
+    """
+    if tile != 0
+        schedule = tile_schedule(kernel, schedule, context, tile)
+    end
 
     if verbose >= 2
         println("===NEW SCHEDULE===")

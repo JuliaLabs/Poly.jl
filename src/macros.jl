@@ -168,12 +168,32 @@ Notes:
 
 @poly_loop requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
 
+Tiling:
+    Loops will be automatically tiled based on l1 cache sizes unless tile=0 is set. Tiling is usually faster, but in cases where the loop bounds are small it will just introduce more loop overhead.
+        Ex:
+        @poly_loop tile=0 for i=1:n ...
+    Tile can also be set to the number of levels to tile (a "level" is the depth of a loop).
+        Ex:
+        @poly_loop tile=2 for i=1:n
+            for j=1:n
+                for k=1:n ...
+        will tile the two outermost dimensions (which might not be i,j)
+        and
+        @poly_loop tile=2 for i=1:n
+            for j=1:n
+                for k=1:n ...
+                    ...
+                end
+            end
+            for jj=1:n ...
+        will tile the two outermost levels (in this representation- i, j, jj)
+    If tile is not set (or tile=-1), then all loops that can be will be tiled by default
+    Warning: some non-uniform access patterns can result in invalid tiling. This is a known bug that is pretty rare.
+
 Loop bounds:
     Loop bounds must NOT be function calls (such as size), since ISL cannot evaluate them. One easy workaround is something like:
         n = size(out, 1)
         @poly_loop for i = 1:n ...
-
-Loop step:
 
 Debugging:
     Debugging and verbosity options (see run_polyhedral_model for details) can be passed as:
@@ -201,6 +221,9 @@ Interpolation:
         end
     In addition, any constants can be interpolated, and sometimes this may improve the performance of ISL. Numerical bounds can help with tiling and inference on spaces. However, it is important that interpolated values are actually constants, or very rarely change, so that this delayed compilation does not occur regularly during runtime.
 
+Loop steps:
+    Steps in loop domains must be interpolated. See above for more info.
+
 Indexing:
     All array indices must be in terms of loop bounds or constants, not of variables. For example,
             c = i + j
@@ -223,30 +246,20 @@ If blocks:
 
 """
 macro poly_loop(ex0...)
-    if length(ex0) > 3
-        error("expected at most 2 options and a loop, got: ", length(ex0), "elements")
+    if length(ex0) > 4
+        error("expected at most 3 options and a loop, got: ", length(ex0), "elements total")
     end
     debug = false
     verbose = 0
-    if length(ex0) == 2
-        arg = ex0[1]
+    tile = -1 # all tiles by default
+    # get set options
+    for arg in ex0[1:end-1] # last is for loop
         if arg.args[1] == :debug
             debug = arg.args[2]
         elseif arg.args[1] == :verbose
             verbose = arg.args[2]
-        end
-    elseif length(ex0) == 3
-        arg1 = ex0[1]
-        if arg1.args[1] == :debug
-            debug = arg1.args[2]
-        elseif arg1.args[1] == :verbose
-            verbose = arg1.args[2]
-        end
-        arg2 = ex0[2]
-        if arg2.args[1] == :debug
-            debug = arg2.args[2]
-        elseif arg2.args[1] == :verbose
-            verbose = arg2.args[2]
+        elseif arg.args[1] == :tile
+            tile = arg.args[2]
         end
     end
     if typeof(debug) != Bool
@@ -254,6 +267,11 @@ macro poly_loop(ex0...)
     end
     if typeof(verbose) != Int
         error("expected integer for verbose, got: ", verbose)
+    end
+    if typeof(tile) != Int
+        error("expected integer for tile, got: ", tile)
+    elseif tile < -1
+        error("expected tile >= -1, got: ", tile)
     end
 
     ex0 = ex0[end] # expression is last arg
@@ -276,28 +294,30 @@ macro poly_loop(ex0...)
         for sym in sub_symbols
             push!(exprs, Expr(:call, :Val, Expr(:escape, sym)))
         end
+        # get the function args for kernel
+        func_args = collect(get_kernel_args(poly_loop(ex0)))
         quote
             # generated function will have the values of the symbols for replacing at runtime
-            @generated function delay_poly_loop(vals...)
+            @generated function delay_poly_loop($(func_args...), vals...)
                 expr = $(QuoteNode(ex0))
                 syms = $(QuoteNode(sub_symbols))
                 d = $(QuoteNode(debug))
                 v = $(QuoteNode(verbose))
+                t = $(QuoteNode(tile))
                 for (i, val) in enumerate(vals)
                     N = __get(val)
                     expr = sub_sym_in_ex(expr, syms[i], N)
                 end
                 kernel = poly_loop(expr)
-                expr = MacroTools.prettify(compile_expr(kernel, debug=d, verbose=v))
-                # use the compiled expression
+                expr = compile_expr(kernel, debug=d, verbose=v, tile=t)
                 expr
             end
-            delay_poly_loop($(exprs...))
+            delay_poly_loop($(map(esc, func_args)...), $(exprs...))
         end
     else
         # make kernel
         kernel = poly_loop(ex0)
-        expr = MacroTools.prettify(compile_expr(kernel, debug=debug, verbose=verbose))
+        expr = MacroTools.prettify(compile_expr(kernel, debug=debug, verbose=verbose, tile=tile))
         esc(quote
             $(expr)
         end)

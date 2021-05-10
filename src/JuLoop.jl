@@ -103,5 +103,6 @@ include("compilation.jl")
 include("macros.jl")
 include("polyhedral.jl")
 include("striding_analysis.jl")
+include("tiling.jl")
 
 end

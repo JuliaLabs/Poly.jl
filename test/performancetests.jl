@@ -217,22 +217,22 @@ end
         @test jright.time != :regression # want comparable or better than right order
     end
 
-    # @testset "automatic tiling" begin
-    #     # test performance nears tiled matrix multiplication (check automatic tiling)
-    #     DIM = 1024
-    #     A = rand(DIM, DIM)
-    #     B = rand(DIM, DIM)
-    #     out = zeros(DIM, DIM)
-    #
-    #     poly_mul(A, B, out) # allow for compiling once
-    #
-    #     t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
-    #     t_tile = @benchmark tiled_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
-    #
-    #     j = judge(minimum(t_poly), minimum(t_tile))
-    #
-    #     @test j.time != :regression # want improvement or invariant (not regression)
-    # end
+    @testset "automatic tiling" begin
+        # test performance nears tiled matrix multiplication (check automatic tiling)
+        DIM = 1024
+        A = rand(DIM, DIM)
+        B = rand(DIM, DIM)
+        out = zeros(DIM, DIM)
+
+        poly_mul(A, B, out) # allow for compiling once
+
+        t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
+        t_tile = @benchmark tiled_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
+
+        j = judge(minimum(t_poly), minimum(t_tile))
+
+        @test j.time != :regression # want improvement or invariant (not regression)
+    end
 
     """
     All of the following tests check that code always gets faster than the original
@@ -285,32 +285,32 @@ end
 
     end
 
-    # @testset "lu decomposition" begin
-    #     DIM = 512
-    #     A = rand(DIM, DIM)*10
-    #     P = zeros(DIM, DIM)
-    #     for i = 1:DIM
-    #         P[i, i] = 1.0
-    #     end
-    #     for j=1:DIM
-    #         i = findmax(A[:, j])[2]
-    #         if j != i
-    #             P[j, :], P[i, :] = P[i, :], P[j, :]
-    #         end
-    #     end
-    #
-    #     PA = P*A
-    #     L = zeros(DIM, DIM)
-    #     U = zeros(DIM, DIM)
-    #
-    #     poly_lu(PA, L, U) # allow for compiling once
-    #
-    #     t_poly = @benchmark poly_lu($PA, L, U) setup=(L = zeros($DIM, $DIM); U = zeros($DIM, $DIM))
-    #     t_orig = @benchmark lu($PA, L, U) setup=(L = zeros($DIM, $DIM); U = zeros($DIM, $DIM))
-    #
-    #     j = judge(minimum(t_poly), minimum(t_orig))
-    #
-    #     @test j.time == :improvement
-    # end
+    @testset "lu decomposition" begin
+        DIM = 512
+        A = rand(DIM, DIM)*10
+        P = zeros(DIM, DIM)
+        for i = 1:DIM
+            P[i, i] = 1.0
+        end
+        for j=1:DIM
+            i = findmax(A[:, j])[2]
+            if j != i
+                P[j, :], P[i, :] = P[i, :], P[j, :]
+            end
+        end
+
+        PA = P*A
+        L = zeros(DIM, DIM)
+        U = zeros(DIM, DIM)
+
+        poly_lu(PA, L, U) # allow for compiling once
+
+        t_poly = @benchmark poly_lu($PA, L, U) setup=(L = zeros($DIM, $DIM); U = zeros($DIM, $DIM))
+        t_orig = @benchmark lu($PA, L, U) setup=(L = zeros($DIM, $DIM); U = zeros($DIM, $DIM))
+
+        j = judge(minimum(t_poly), minimum(t_orig))
+
+        @test j.time == :improvement
+    end
 
 end

@@ -35,6 +35,18 @@ git-tree-sha1 = "15abc5f976569a1c9d651aff02f7222ef305eb2a"
 uuid = "781609d7-10c4-51f6-84f2-b8444358ff6d"
 version = "6.1.2+6"
 
+[[Hwloc]]
+deps = ["Hwloc_jll"]
+git-tree-sha1 = "92d99146066c5c6888d5a3abc871e6a214388b91"
+uuid = "0e44f5e4-bd66-52a0-8798-143a42290a1d"
+version = "2.0.0"
+
+[[Hwloc_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "aac91e34ef4c166e0857e3d6052a3467e5732ceb"
+uuid = "e33a78d0-f292-5ffc-b300-72abe9b543c8"
+version = "2.4.1+0"
+
 [[ISL]]
 deps = ["CEnum", "ISL_jll"]
 git-tree-sha1 = "a50922a057940a83badc5f676743ebf39105177e"
