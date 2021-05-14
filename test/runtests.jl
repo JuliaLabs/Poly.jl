@@ -393,9 +393,9 @@ using StaticArrays
 
     @testset "basic matmul" begin
         # test macros basic matmul
-        n = 512
-        r = 512
-        m = 512
+        n = 128
+        r = 128
+        m = 128
         A = rand(n, r)
         B = rand(r, m)
         out = zeros(n, m)
@@ -490,4 +490,4 @@ using StaticArrays
 
 end
 
-include("performancetests.jl")
+# include("performancetests.jl")
