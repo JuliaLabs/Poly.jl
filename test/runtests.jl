@@ -490,4 +490,4 @@ using StaticArrays
 
 end
 
-# include("performancetests.jl")
+include("performancetests.jl")
