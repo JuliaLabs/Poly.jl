@@ -27,11 +27,75 @@ function tiling_sizes(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.
 end
 
 """
+shift the band to start at 0 so that full tiling occurs
+"""
+function shift_band_zero(band::Ptr{ISL.API.isl_schedule_node}) ::Tuple{Ptr{ISL.API.isl_multi_union_pw_aff}, Ptr{ISL.API.isl_multi_union_pw_aff}}
+    # band domain
+    domain = ISL.API.isl_schedule_node_get_domain(band)
+    println("BAND DOM:")
+    ISL.API.isl_union_set_dump(domain)
+    # mupa partial schedule
+    partial_schedule = ISL.API.isl_schedule_node_band_get_partial_schedule(band)
+    println("CURRENT PARTIAL:")
+    mupa = ISL.API.isl_multi_union_pw_aff_intersect_domain(ISL.API.isl_multi_union_pw_aff_copy(partial_schedule), ISL.API.isl_union_set_copy(domain))
+    ISL.API.isl_multi_union_pw_aff_dump(mupa)
+    # get shift mupa
+    multi_val = ISL.API.isl_multi_union_pw_aff_min_multi_val(mupa)
+    println("MV:")
+    ISL.API.isl_multi_val_dump(multi_val)
+    shift = ISL.API.isl_multi_union_pw_aff_multi_val_on_domain(domain, multi_val)
+    shift_neg = ISL.API.isl_multi_union_pw_aff_neg(ISL.API.isl_multi_union_pw_aff_copy(shift))
+    # shift partial schedule
+    partial_schedule = ISL.API.isl_multi_union_pw_aff_add(partial_schedule, shift_neg)
+    println("NEW PARTIAL:")
+    ISL.API.isl_multi_union_pw_aff_dump(partial_schedule)
+    # # shift back
+    # partial_schedule_back = ISL.API.isl_multi_union_pw_aff_add(partial_schedule, ISL.API.isl_multi_union_pw_aff_copy(shift))
+    # println("NEW NEW PARTIAL:")
+    # ISL.API.isl_multi_union_pw_aff_dump(partial_schedule_back)
+    # put new schedule in band
+    # band = ISL.API.isl_schedule_node_band_set_partial_schedule(partial_schedule)
+    # keep shift (mupa) to shift back up later
+    return partial_schedule, shift
+end
+
+"""
+tile a partial schedule
+"""
+function tile_partial_schedule(sched::Ptr{ISL.API.isl_multi_union_pw_aff}, sizes::Ptr{ISL.API.isl_multi_val})::Ptr{ISL.API.isl_multi_union_pw_aff}
+    ctx = ISL.API.isl_multi_val_get_ctx(sizes)
+    scale = ISL.API.isl_options_get_tile_scale_tile_loops(ctx)
+    n = ISL.API.isl_multi_union_pw_aff_size(sched)
+    for i=0:n-1
+        upa = ISL.API.isl_multi_union_pw_aff_get_union_pw_aff(sched, i)
+        v = ISL.API.isl_multi_val_get_val(sizes, i)
+        upa = ISL.API.isl_union_pw_aff_scale_down_val(upa, ISL.API.isl_val_copy(v))
+		upa = ISL.API.isl_union_pw_aff_floor(upa)
+		if scale == ISL.API.isl_bool_true
+			upa = ISL.API.isl_union_pw_aff_scale_val(upa, ISL.API.isl_val_copy(v))
+        end
+        ISL.API.isl_val_free(v)
+        sched = ISL.API.isl_multi_union_pw_aff_set_union_pw_aff(sched, i, upa)
+    end
+    return sched
+end
+
+"""
 tile a band node with tile dimension n (max dimension of tile)
 """
 function tile_band(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.API.isl_ctx})::Ptr{ISL.API.isl_schedule}
-    multival = tiling_sizes(n, band, context)
-    band = ISL.API.isl_schedule_node_band_tile(band, multival)
+    # shift to zero
+    partial_schedule, shift = shift_band_zero(band)
+    # tile
+    multi_val = tiling_sizes(n, band, context)
+    partial_schedule = tile_partial_schedule(partial_schedule, multi_val)
+    # band = ISL.API.isl_schedule_node_band_tile(band, multival)
+    # shift back
+    # partial_schedule = ISL.API.isl_schedule_node_band_get_partial_schedule(band)
+    partial_schedule = ISL.API.isl_multi_union_pw_aff_add(partial_schedule, ISL.API.isl_multi_union_pw_aff_copy(shift))
+    # insert tiled schedule below band
+    band = ISL.API.isl_schedule_node_insert_partial_schedule(band, partial_schedule)
+    # get new schedule
     schedule = ISL.API.isl_schedule_node_get_schedule(band)
     return schedule
 end
@@ -88,6 +152,7 @@ function tile_schedule(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, 
                 # need to add child of band, since split band
                 push!(next_nodes, ISL.API.isl_schedule_node_get_child(band, 0))
                 tiled = true
+                break
             else
                 # add to next nodes
                 push!(next_nodes, band)
@@ -95,7 +160,8 @@ function tile_schedule(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, 
         end
 
         if tiled
-            tiled_level += 1
+            # tiled_level += 1
+            break
         end
 
         if tiled_level == tile_dim

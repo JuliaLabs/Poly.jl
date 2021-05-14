@@ -123,9 +123,10 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     # dependence constraints
     all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
     all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
-    loop_ordering_deps = ISL.API.isl_union_map_union(ISL.API.isl_union_map_copy(all_deps), loop_ordering_deps)
+    # loop_ordering_deps = ISL.API.isl_union_map_union(ISL.API.isl_union_map_copy(all_deps), loop_ordering_deps)
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
-    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(loop_ordering_deps))
+    # schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(loop_ordering_deps))
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
 
     # proximity constraints (keeps loops nested based on dependencies)
     schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
