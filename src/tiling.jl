@@ -155,15 +155,23 @@ tile a band node with tile dimension n (max dimension of tile)
 function tile_band(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.API.isl_ctx}, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool)::Ptr{ISL.API.isl_schedule}
     # shift to zero
     partial_schedule, shift = shift_band_zero(band, context)
+    println("shift to 0")
+    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
     # reorder loops
     if loop_order_valid
         partial_schedule = reorder_loops(partial_schedule, loop_ordering, context)
     end
+    println("reorder")
+    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
     # tile
     multi_val = tiling_sizes(n, band, context)
     partial_schedule = tile_partial_schedule(partial_schedule, multi_val)
+    println("tile")
+    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
     # shift back to original dims
     partial_schedule = ISL.API.isl_multi_union_pw_aff_add(partial_schedule, shift)
+    println("shift back")
+    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
     # insert tiled schedule below band
     band = ISL.API.isl_schedule_node_insert_partial_schedule(band, partial_schedule)
     # get new schedule
