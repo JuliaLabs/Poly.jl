@@ -49,15 +49,13 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     """
     construct the access relations
     """
-    may_read, may_write, must_write = accesses_isl_rep(kernel)
+    may_read, must_write = accesses_isl_rep(kernel)
     if verbose >= 3
         println("===ACCESS RELATIONS===")
         @show may_read
-        @show may_write
         @show must_write
     end
     may_read = ISL.API.isl_union_map_read_from_str(context, may_read)
-    may_write = ISL.API.isl_union_map_read_from_str(context, may_write)
     must_write = ISL.API.isl_union_map_read_from_str(context, must_write)
 
     """
@@ -108,38 +106,6 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     end
 
     """
-    add loop ordering dependencies based on striding analysis
-    """
-    loop_ordering_deps = get_loop_ordering_deps_isl(kernel)
-    if verbose >= 2
-        println("===LOOP ORDERINGS===")
-        @show loop_ordering_deps
-    end
-    loop_ordering_deps = ISL.API.isl_union_map_read_from_str(context, loop_ordering_deps)
-
-    """
-    construct new schedule constraints from dependencies
-    """
-    # dependence constraints
-    all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
-    all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
-    # loop_ordering_deps = ISL.API.isl_union_map_union(ISL.API.isl_union_map_copy(all_deps), loop_ordering_deps)
-    schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
-    # schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(loop_ordering_deps))
-    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-
-    # proximity constraints (keeps loops nested based on dependencies)
-    schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-
-    # coincidence constraints (things to be scheduled together- doesn't usually do much)
-    # schedule_constraints = ISL.API.isl_schedule_constraints_set_coincidence(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-
-    if verbose >= 3
-        println("===SCHEDULE CONSTRAINTS===")
-        ISL.API.isl_schedule_constraints_dump(schedule_constraints)
-    end
-
-    """
     scheduling options
     """
     # maximize band size- better for tiling
@@ -154,21 +120,65 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     ISL.API.isl_options_set_tile_shift_point_loops(context, 0)
 
     """
+    add loop ordering dependencies based on striding analysis
+    """
+    loop_orderings = get_best_nesting_orders(kernel)
+    loop_ordering_deps = get_loop_ordering_deps_isl(kernel, loop_orderings)
+    if verbose >= 2
+        println("===LOOP ORDERINGS===")
+        @show loop_orderings
+    end
+    loop_ordering_deps = ISL.API.isl_union_map_read_from_str(context, loop_ordering_deps)
+
+    """
+    construct a new schedule from the loop ordering dependencies
+    determines if the loop ordering is valid
+    """
+    loop_order_valid = true
+    all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
+    all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
+    loop_ordering_deps = ISL.API.isl_union_map_union(ISL.API.isl_union_map_copy(all_deps), loop_ordering_deps)
+    schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(loop_ordering_deps))
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, loop_ordering_deps)
+    schedule_loop = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
+    # check if scheduling error (loop orderings invalid)
+    if ISL.API.isl_ctx_last_error_line(context) != -1
+        loop_order_valid = false
+        # reset context error
+        ISL.API.isl_ctx_reset_error(context)
+    end
+    if verbose >= 3
+        println("===LOOP ORDERING VALID===")
+        println(loop_order_valid)
+        if loop_order_valid
+            println("===LOOP ORDERING SCHEDULE===")
+            ISL.API.isl_schedule_dump(schedule_loop)
+        end
+    end
+
+    """
+    construct schedule constraints from dependency analysis (no loop ordering deps)
+    """
+    # dependence constraints
+    schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+
+    # proximity constraints (keeps loops nested based on dependencies)
+    schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+
+    # coincidence constraints (things to be scheduled together- doesn't usually do much)
+    # schedule_constraints = ISL.API.isl_schedule_constraints_set_coincidence(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
+
+    if verbose >= 3
+        println("===SCHEDULE CONSTRAINTS===")
+        ISL.API.isl_schedule_constraints_dump(schedule_constraints)
+    end
+
+    """
     compute the new schedule
     """
     schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
-
-    # handle scheduling error (usually when loop orderings are illegal, try without)
-    if ISL.API.isl_ctx_last_error_line(context) != -1
-        # reset context error
-        ISL.API.isl_ctx_reset_error(context)
-        # try schedule without loop reordering
-        schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(instructions)
-        schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-        schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
-        schedule = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
-    end
-
     if verbose >= 3
         println("===NEW SCHEDULE PRE TILING===")
         ISL.API.isl_schedule_dump(schedule)
@@ -178,7 +188,7 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     tiling of band nodes
     """
     if tile != 0
-        schedule = tile_schedule(kernel, schedule, context, tile)
+        schedule = tile_schedule(kernel, schedule, context, tile, loop_orderings, loop_order_valid)
     end
 
     if verbose >= 2
@@ -413,16 +423,13 @@ may_read:
 [n, A, B, C] -> {
 mult[i, j, k] -> A[k, i] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n;
 mult[i, j, k] -> B[j, k] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
-may_write:
-[n, A, B, C] -> {mult[i, j, k] -> C[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
 must_write:
 [n, A, B, C] -> {mult[i, j, k] -> C[i, j] : 0 <= i <= n and 0 <= j <= n and 0 <= k <= n}
 """
-function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String, String}
+function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String}
     params = get_params_str(kernel)
 
     may_read = string(params, " -> {")
-    may_write = string(params, " -> {")
     must_write = string(params, " -> {")
     rcount = 1
     wcount = 1
@@ -472,8 +479,7 @@ function accesses_isl_rep(kernel::LoopKernel)::Tuple{String, String, String}
     if must_write == "{}"
         must_write = "{:}"
     end
-    may_write = must_write
-    return may_read, may_write, must_write
+    return may_read, must_write
 end
 
 
@@ -482,13 +488,11 @@ Get the loop ordering dependencies for a kernel
 For example, to specify the order j, k, i in a loop nest:
     "[n, r, m] -> {out253[i, j, k] -> out253[i', j', k']: j, k, i << j', k', i'}"
 """
-function get_loop_ordering_deps_isl(kernel::LoopKernel)::String
+function get_loop_ordering_deps_isl(kernel::LoopKernel, loop_orderings::Set{Vector{Symbol}})::String
     params = get_params_str(kernel)
 
     ordering_deps = "{"
     count = 0
-
-    loop_orderings = get_best_nesting_orders(kernel)
 
     for order in loop_orderings
         for domain in kernel.domains
