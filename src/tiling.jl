@@ -29,13 +29,15 @@ end
 """
 reorder the loops of a partial schedule
 """
-function reorder_loops(sched::Ptr{ISL.API.isl_multi_union_pw_aff}, loop_ordering::Set{Vector{Symbol}}, context::Ptr{ISL.API.isl_ctx})::Ptr{ISL.API.isl_multi_union_pw_aff}
+function reorder_loops(sched::Ptr{ISL.API.isl_multi_union_pw_aff}, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool, context::Ptr{ISL.API.isl_ctx})::Ptr{ISL.API.isl_multi_union_pw_aff}
+    if !loop_order_valid
+        return sched
+    end
     # make new schedule by copying (isl_copy does not return a copy but the actual)
     sched_str = ISL.API.isl_multi_union_pw_aff_to_str(sched)
     sched_str = Base.unsafe_convert(Ptr{Cchar}, sched_str)
     sched_str = Base.unsafe_string(sched_str)
     new_sched = ISL.API.isl_multi_union_pw_aff_read_from_str(context, sched_str)
-    ISL.API.isl_multi_union_pw_aff_dump(new_sched)
     # number of upa in sched
     n = ISL.API.isl_multi_union_pw_aff_dim(sched, ISL.API.isl_dim_type(3))
     count = 0
@@ -155,23 +157,13 @@ tile a band node with tile dimension n (max dimension of tile)
 function tile_band(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.API.isl_ctx}, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool)::Ptr{ISL.API.isl_schedule}
     # shift to zero
     partial_schedule, shift = shift_band_zero(band, context)
-    println("shift to 0")
-    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
     # reorder loops
-    if loop_order_valid
-        partial_schedule = reorder_loops(partial_schedule, loop_ordering, context)
-    end
-    println("reorder")
-    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
+    partial_schedule = reorder_loops(partial_schedule, loop_ordering, loop_order_valid, context)
     # tile
     multi_val = tiling_sizes(n, band, context)
     partial_schedule = tile_partial_schedule(partial_schedule, multi_val)
-    println("tile")
-    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
     # shift back to original dims
     partial_schedule = ISL.API.isl_multi_union_pw_aff_add(partial_schedule, shift)
-    println("shift back")
-    ISL.API.isl_multi_union_pw_aff_dum(partial_schedule)
     # insert tiled schedule below band
     band = ISL.API.isl_schedule_node_insert_partial_schedule(band, partial_schedule)
     # get new schedule
