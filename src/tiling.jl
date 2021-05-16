@@ -27,79 +27,6 @@ function tiling_sizes(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.
 end
 
 """
-reorder the loops of a partial schedule
-"""
-function reorder_loops(sched::Ptr{ISL.API.isl_multi_union_pw_aff}, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool, context::Ptr{ISL.API.isl_ctx})::Ptr{ISL.API.isl_multi_union_pw_aff}
-    if !loop_order_valid
-        return sched
-    end
-    # make new schedule by copying (isl_copy does not return a copy but the actual)
-    sched_str = ISL.API.isl_multi_union_pw_aff_to_str(sched)
-    sched_str = Base.unsafe_convert(Ptr{Cchar}, sched_str)
-    sched_str = Base.unsafe_string(sched_str)
-    new_sched = ISL.API.isl_multi_union_pw_aff_read_from_str(context, sched_str)
-    # number of upa in sched
-    n = ISL.API.isl_multi_union_pw_aff_dim(sched, ISL.API.isl_dim_type(3))
-    count = 0
-    upas = []
-    for i=0:n-1
-        upa = ISL.API.isl_multi_union_pw_aff_get_union_pw_aff(sched, i)
-        push!(upas, (false, upa))
-    end
-
-    # add upas in order of loop orderings
-    for ordering in loop_ordering
-        for iname in ordering
-            for (i, val) in enumerate(upas)
-                used = val[1]
-                upa = val[2]
-                if used
-                    continue
-                end
-
-                upa_str = ISL.API.isl_union_pw_aff_to_str(upa)
-                upa_str = Base.unsafe_convert(Ptr{Cchar}, upa_str)
-                upa_str = Base.unsafe_string(upa_str)
-                # which iterator it is is between the -> and :
-                # name[i0, i1, ...] -> [(i0)] : conditions...
-                upa_iname_str = Base.split(upa_str, "->")[end]
-                upa_iname_str = Base.split(upa_iname_str, ":")[1]
-                # determine if iname in upa
-                if occursin(sym_to_str(iname), upa_iname_str)
-                    # make new upa (to avoid copying issues)
-                    new_upa = ISL.API.isl_union_pw_aff_read_from_str(context, upa_str)
-                    # set count location to upa in new schedule
-                    ISL.API.isl_multi_union_pw_aff_set_union_pw_aff(new_sched, count, new_upa)
-                    # increment count
-                    count += 1
-                    upas[i] = (true, upa)
-                end
-            end
-        end
-    end
-
-    # add remaining upas
-    for val in upas
-        used = val[1]
-        upa = val[2]
-        if used
-            continue
-        end
-        upa_str = ISL.API.isl_union_pw_aff_to_str(upa)
-        upa_str = Base.unsafe_convert(Ptr{Cchar}, upa_str)
-        upa_str = Base.unsafe_string(upa_str)
-        # make new upa (to avoid copying issues)
-        new_upa = ISL.API.isl_union_pw_aff_read_from_str(context, upa_str)
-        # set count location to upa in new schedule
-        ISL.API.isl_multi_union_pw_aff_set_union_pw_aff(new_sched, count, new_upa)
-        # increment count
-        count += 1
-    end
-
-    return new_sched
-end
-
-"""
 shift the band to start at 0 so that full tiling occurs
 """
 function shift_band_zero(band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.API.isl_ctx}) ::Tuple{Ptr{ISL.API.isl_multi_union_pw_aff}, Ptr{ISL.API.isl_multi_union_pw_aff}}
@@ -154,11 +81,9 @@ end
 """
 tile a band node with tile dimension n (max dimension of tile)
 """
-function tile_band(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.API.isl_ctx}, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool)::Ptr{ISL.API.isl_schedule}
+function tile_band(n, band::Ptr{ISL.API.isl_schedule_node}, context::Ptr{ISL.API.isl_ctx})::Ptr{ISL.API.isl_schedule}
     # shift to zero
     partial_schedule, shift = shift_band_zero(band, context)
-    # reorder loops
-    partial_schedule = reorder_loops(partial_schedule, loop_ordering, loop_order_valid, context)
     # tile
     multi_val = tiling_sizes(n, band, context)
     partial_schedule = tile_partial_schedule(partial_schedule, multi_val)
@@ -208,13 +133,11 @@ inputs:
     schedule - ISL schedule of kernel
     context - ISL context
     tile_dim - dimensions to tile (0 means don't tile)
-    loop_ordering - ordering of loops to use
-    loop_order_valid - if loop ordering is valid
 
 returns:
-    schedule - ISL schedule that is tiled and has reordered loops (if valid)
+    schedule - ISL schedule that is tiled
 """
-function tile_schedule(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, context::Ptr{ISL.API.isl_ctx}, tile_dim::Int, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool)::Ptr{ISL.API.isl_schedule}
+function tile_schedule(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, context::Ptr{ISL.API.isl_ctx}, tile_dim::Int)::Ptr{ISL.API.isl_schedule}
     tile_schedule = schedule
     n = get_tile_dim(kernel)
     root = ISL.API.isl_schedule_get_root(schedule)
@@ -228,7 +151,7 @@ function tile_schedule(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, 
             band = ISL.API.isl_schedule_node_get_child(node, i)
             if ISL.API.isl_schedule_node_get_type(band) == ISL.API.isl_schedule_node_type(0) # band node
                 # in a band node, tile band with dimension n
-                tile_schedule = tile_band(n, band, context, loop_ordering, loop_order_valid)
+                tile_schedule = tile_band(n, band, context)
                 # need to add child of band, since split band
                 push!(next_nodes, ISL.API.isl_schedule_node_get_child(band, 0))
                 tiled = true

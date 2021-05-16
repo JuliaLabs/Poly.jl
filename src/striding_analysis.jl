@@ -182,3 +182,133 @@ function get_best_nesting_orders(kernel::LoopKernel)::Set{Vector{Symbol}}
     end
     return nesting_orders
 end
+
+"""
+reorder the loops of a band node's partial schedule
+"""
+function reorder_band(band::Ptr{ISL.API.isl_schedule_node}, loop_ordering::Set{Vector{Symbol}}, context::Ptr{ISL.API.isl_ctx})
+    # get schedule of band
+    sched = ISL.API.isl_schedule_node_band_get_partial_schedule(band)
+    # make a copy of the schedule (isl_copy does not return a copy but the actual reference)
+    sched_str = ISL.API.isl_multi_union_pw_aff_to_str(sched)
+    sched_str = Base.unsafe_convert(Ptr{Cchar}, sched_str)
+    sched_str = Base.unsafe_string(sched_str)
+    sched_copy = ISL.API.isl_multi_union_pw_aff_read_from_str(context, sched_str)
+    # number of upa in sched
+    n = ISL.API.isl_multi_union_pw_aff_dim(sched_copy, ISL.API.isl_dim_type(3))
+    count = 0
+    upas = []
+    for i=0:n-1
+        # read from copy
+        upa = ISL.API.isl_multi_union_pw_aff_get_union_pw_aff(sched_copy, i)
+        push!(upas, (false, upa))
+    end
+
+    # warm up
+    # this is messy, but there is no way to set a partial schedule of a band
+    # this sets the first element so that there are no more references known to the mupa
+    # then, we can modify the mupa of the band directly
+    upa_str = ISL.API.isl_union_pw_aff_to_str(upas[1][2])
+    upa_str = Base.unsafe_convert(Ptr{Cchar}, upa_str)
+    upa_str = Base.unsafe_string(upa_str)
+    new_upa = ISL.API.isl_union_pw_aff_read_from_str(context, upa_str)
+    ISL.API.isl_multi_union_pw_aff_set_union_pw_aff(sched, 0, new_upa)
+
+    # add upas in order of loop orderings
+    for ordering in loop_ordering
+        for iname in ordering
+            for (i, val) in enumerate(upas)
+                used = val[1]
+                upa = val[2]
+                if used
+                    continue
+                end
+
+                upa_str = ISL.API.isl_union_pw_aff_to_str(upa)
+                upa_str = Base.unsafe_convert(Ptr{Cchar}, upa_str)
+                upa_str = Base.unsafe_string(upa_str)
+                # which iterator it is is between the -> and :
+                # name[i0, i1, ...] -> [(i0)] : conditions...
+                upa_iname_str = Base.split(upa_str, "->")[end]
+                upa_iname_str = Base.split(upa_iname_str, ":")[1]
+                # determine if iname in upa
+                if occursin(sym_to_str(iname), upa_iname_str)
+                    # make new upa (to avoid copying issues)
+                    new_upa = ISL.API.isl_union_pw_aff_read_from_str(context, upa_str)
+                    # set count location to upa in new schedule
+                    ISL.API.isl_multi_union_pw_aff_set_union_pw_aff(sched, count, new_upa)
+                    # increment count
+                    count += 1
+                    upas[i] = (true, upa)
+                end
+            end
+        end
+    end
+
+    # add remaining upas
+    for val in upas
+        used = val[1]
+        upa = val[2]
+        if used
+            continue
+        end
+        upa_str = ISL.API.isl_union_pw_aff_to_str(upa)
+        upa_str = Base.unsafe_convert(Ptr{Cchar}, upa_str)
+        upa_str = Base.unsafe_string(upa_str)
+        # make new upa (to avoid copying issues)
+        new_upa = ISL.API.isl_union_pw_aff_read_from_str(context, upa_str)
+        # set count location to upa in new schedule
+        ISL.API.isl_multi_union_pw_aff_set_union_pw_aff(sched, count, new_upa)
+        # increment count
+        count += 1
+    end
+
+end
+
+"""
+reorder the loops in a schedule
+
+input:
+    - kernel: kernel to reorder
+    - schedule: ISL schedule of kernel
+    - context: ISL context
+    - loop_ordering: orderings of loops to use
+    - loop_order_valid: if orderings are valid
+
+returns reordered loop schedule if loop orderings are valid
+"""
+function reorder_schedule_loops(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, context::Ptr{ISL.API.isl_ctx}, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool)
+
+    if !loop_order_valid
+        return schedule
+    end
+
+    n = get_tile_dim(kernel)
+    root = ISL.API.isl_schedule_get_root(schedule)
+    node = root
+    next_nodes = Set()
+    # search for the outermost band node to reorder
+    # (only band nodes can be reordered)
+    while ISL.API.isl_schedule_node_n_children(node) > 0
+        # go through all children of current node
+        for i=0:ISL.API.isl_schedule_node_n_children(node)-1
+            band = ISL.API.isl_schedule_node_get_child(node, i)
+            if ISL.API.isl_schedule_node_get_type(band) == ISL.API.isl_schedule_node_type(0) # band node
+                # in a band node, tile band with dimension n
+                reorder_band(band, loop_ordering, context)
+                # need to add child of band, since split band
+                push!(next_nodes, ISL.API.isl_schedule_node_get_child(band, 0))
+                break
+            else
+                # add to next nodes
+                push!(next_nodes, band)
+            end
+        end
+
+        if length(next_nodes) == 0
+            break # done, no children left
+        end
+        node = pop!(next_nodes) # get next node
+    end
+
+end

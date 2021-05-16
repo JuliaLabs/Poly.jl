@@ -131,7 +131,7 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     loop_ordering_deps = ISL.API.isl_union_map_read_from_str(context, loop_ordering_deps)
 
     """
-    construct a new schedule from the loop ordering dependencies
+    construct a new schedule from the loop ordering dependencies;
     determines if the loop ordering is valid
     """
     loop_order_valid = true
@@ -185,10 +185,19 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     end
 
     """
+    reordering of schedule loops
+    """
+    reorder_schedule_loops(kernel, schedule, context, loop_orderings, loop_order_valid)
+    if verbose >= 3
+        println("===SCHEDULE AFTER REORDERING===")
+        ISL.API.isl_schedule_dump(schedule)
+    end
+
+    """
     tiling of band nodes
     """
     if tile != 0
-        schedule = tile_schedule(kernel, schedule, context, tile, loop_orderings, loop_order_valid)
+        schedule = tile_schedule(kernel, schedule, context, tile)
     end
 
     if verbose >= 2
