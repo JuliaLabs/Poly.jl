@@ -273,15 +273,10 @@ input:
     - schedule: ISL schedule of kernel
     - context: ISL context
     - loop_ordering: orderings of loops to use
-    - loop_order_valid: if orderings are valid
 
-returns reordered loop schedule if loop orderings are valid
+modifies schedule to support new loop orderings if able
 """
-function reorder_schedule_loops(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, context::Ptr{ISL.API.isl_ctx}, loop_ordering::Set{Vector{Symbol}}, loop_order_valid::Bool)
-
-    if !loop_order_valid
-        return schedule
-    end
+function reorder_schedule_loops(kernel::LoopKernel, schedule::Ptr{ISL.API.isl_schedule}, context::Ptr{ISL.API.isl_ctx}, loop_ordering::Set{Vector{Symbol}})
 
     n = get_tile_dim(kernel)
     root = ISL.API.isl_schedule_get_root(schedule)

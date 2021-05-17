@@ -169,25 +169,10 @@ Notes:
 @poly_loop requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
 
 Tiling:
-    Loops will be automatically tiled based on l1 cache sizes unless tile=0 is set. Tiling is usually faster, but in cases where the loop bounds are small it will just introduce more loop overhead.
+    Loops will be automatically tiled based on l1 cache sizes unless tile=0 is set.
         Ex:
         @poly_loop tile=0 for i=1:n ...
-    Tile can also be set to the number of levels to tile (a "level" is the depth of a loop).
-        Ex:
-        @poly_loop tile=2 for i=1:n
-            for j=1:n
-                for k=1:n ...
-        will tile the two outermost dimensions (which might not be i,j)
-        and
-        @poly_loop tile=2 for i=1:n
-            for j=1:n
-                for k=1:n ...
-                    ...
-                end
-            end
-            for jj=1:n ...
-        will tile the two outermost levels (in this representation- i, j, jj)
-    If tile is not set (or tile=-1), then all loops that can be will be tiled by default
+    Tiling is usually faster, but in cases where the loop bounds are small it will just introduce more loop overhead. Unless tile=0 is set, the outermost band (grouping of permutable loops) will be tiled.
     Warning: some non-uniform access patterns can result in invalid tiling. This is a known bug that is pretty rare.
 
 Loop bounds:
@@ -225,14 +210,15 @@ Loop steps:
     Steps in loop domains must be interpolated. See above for more info.
 
 Indexing:
-    All array indices must be in terms of loop bounds or constants, not of variables. For example,
+    All array indices must be in terms of loop bounds or constants, not of variables.
+        Ex:
             c = i + j
             A[c]
         Must become
             A[i + j]
 
     Multilpicative indexing (i.e. A[i*t, j]) is not supported. If needed, stride over the iterator.
-        So, this:
+        Ex:
             @poly_loop for t=1:NUM_TILES
                 A[TILE_SIZE*t] = 1
             end
@@ -241,7 +227,7 @@ Indexing:
                 A[t] = 1
             end
 
-If blocks:
+If/elseif/else blocks:
     If blocks must contain conditions on the loop iterators and constants only (not on any elements of an array, for example)
 
 """

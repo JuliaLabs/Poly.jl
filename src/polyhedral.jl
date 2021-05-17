@@ -120,47 +120,11 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     ISL.API.isl_options_set_tile_shift_point_loops(context, 0)
 
     """
-    add loop ordering dependencies based on striding analysis
-    """
-    loop_orderings = get_best_nesting_orders(kernel)
-    loop_ordering_deps = get_loop_ordering_deps_isl(kernel, loop_orderings)
-    if verbose >= 2
-        println("===LOOP ORDERINGS===")
-        @show loop_orderings
-    end
-    loop_ordering_deps = ISL.API.isl_union_map_read_from_str(context, loop_ordering_deps)
-
-    """
-    construct a new schedule from the loop ordering dependencies;
-    determines if the loop ordering is valid
-    """
-    loop_order_valid = true
-    all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
-    all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
-    loop_ordering_deps = ISL.API.isl_union_map_union(ISL.API.isl_union_map_copy(all_deps), loop_ordering_deps)
-    schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
-    schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(loop_ordering_deps))
-    schedule_constraints = ISL.API.isl_schedule_constraints_set_proximity(schedule_constraints, loop_ordering_deps)
-    schedule_loop = ISL.API.isl_schedule_constraints_compute_schedule(schedule_constraints)
-    # check if scheduling error (loop orderings invalid)
-    if ISL.API.isl_ctx_last_error_line(context) != -1
-        loop_order_valid = false
-        # reset context error
-        ISL.API.isl_ctx_reset_error(context)
-    end
-    if verbose >= 3
-        println("===LOOP ORDERING VALID===")
-        println(loop_order_valid)
-        if loop_order_valid
-            println("===LOOP ORDERING SCHEDULE===")
-            ISL.API.isl_schedule_dump(schedule_loop)
-        end
-    end
-
-    """
-    construct schedule constraints from dependency analysis (no loop ordering deps)
+    construct schedule constraints from dependency analysis
     """
     # dependence constraints
+    all_deps = ISL.API.isl_union_map_union(waw_deps, war_deps)
+    all_deps = ISL.API.isl_union_map_union(all_deps, raw_deps)
     schedule_constraints = ISL.API.isl_schedule_constraints_on_domain(ISL.API.isl_union_set_copy(instructions))
     schedule_constraints = ISL.API.isl_schedule_constraints_set_validity(schedule_constraints, ISL.API.isl_union_map_copy(all_deps))
 
@@ -187,7 +151,12 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     """
     reordering of schedule loops
     """
-    reorder_schedule_loops(kernel, schedule, context, loop_orderings, loop_order_valid)
+    loop_orderings = get_best_nesting_orders(kernel)
+    if verbose >= 2
+        println("===LOOP ORDERINGS===")
+        @show loop_orderings
+    end
+    reorder_schedule_loops(kernel, schedule, context, loop_orderings)
     if verbose >= 3
         println("===SCHEDULE AFTER REORDERING===")
         ISL.API.isl_schedule_dump(schedule)

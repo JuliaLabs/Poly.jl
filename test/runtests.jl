@@ -490,4 +490,5 @@ using StaticArrays
 
 end
 
-include("performancetests.jl")
+# uncomment to run performance testing (takes a while, so commented out for github)
+# include("performancetests.jl")

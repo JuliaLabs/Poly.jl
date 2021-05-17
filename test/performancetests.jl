@@ -59,22 +59,65 @@ function tiled_mul(A, B, C)
     N = size(C)[1]
     TILE_DIM = 64
     NUM_TILES = Int(N/TILE_DIM)
-    tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
-    tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
+    # tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
+    # tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
 
     @inbounds for gj = 0:TILE_DIM:N-1
         for gk = 0:TILE_DIM:N-1
             for gi = 0:TILE_DIM:N-1
-                for j = 1:TILE_DIM
-                    for i = 1:TILE_DIM
-                        tile1[i, j] = A[gi + i, gk + j]
-                        tile2[i, j] = B[gk + i, gj + j]
-                    end
-                end
+                # for j = 1:TILE_DIM
+                #     for i = 1:TILE_DIM
+                #         tile1[i, j] = A[gi + i, gk + j]
+                #         tile2[i, j] = B[gk + i, gj + j]
+                #     end
+                # end
                 for jj in 1:TILE_DIM
                     for k = 1:TILE_DIM
                         for ii = 1:TILE_DIM
-                            C[gi + ii, gj + jj] += tile1[ii, k] * tile2[k, jj]
+                            # C[gi + ii, gj + jj] += tile1[ii, k] * tile2[k, jj]
+                            C[gi + ii, gj + jj] += A[gi + ii, gk + k] * B[gk + k, gj + jj]
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+function tiled_mul_notsquare(A, B, C)
+    N = size(C, 1)
+    M = size(C, 2)
+    R = size(A, 2)
+    TILE_DIM = 64
+
+    @inbounds for gj = 0:TILE_DIM:M-1
+        for gk = 0:TILE_DIM:R-1
+            for gi = 0:TILE_DIM:N-1
+                for jj in 1:TILE_DIM
+                    for k = 1:TILE_DIM
+                        for ii = 1:TILE_DIM
+                            C[gi + ii, gj + jj] += A[gi + ii, gk + k] * B[gk + k, gj + jj]
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+function tiled_mul_any(A, B, C)
+    N = size(C, 1)
+    M = size(C, 2)
+    R = size(A, 2)
+    TILE_DIM = 64
+
+    @inbounds for gj = 1:TILE_DIM:M
+        for gk = 1:TILE_DIM:R
+            for gi = 1:TILE_DIM:N
+                for jj in gj:min(gj + TILE_DIM, M)
+                    for k = gk:min(gk + TILE_DIM, R)
+                        for ii = gi:min(gi + TILE_DIM, N)
+                            C[ii, jj] += A[ii, k] * B[k, jj]
                         end
                     end
                 end
@@ -217,7 +260,7 @@ end
         @test jright.time != :regression # want comparable or better than right order
     end
 
-    @testset "automatic tiling" begin
+    @testset "automatic tiling square" begin
         # test performance nears tiled matrix multiplication (check automatic tiling)
         DIM = 1024
         A = rand(DIM, DIM)
@@ -228,6 +271,44 @@ end
 
         t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
         t_tile = @benchmark tiled_mul($A, $B, out) setup=(out = zeros($DIM, $DIM))
+
+        j = judge(minimum(t_poly), minimum(t_tile))
+
+        @test j.time != :regression # want improvement or invariant (not regression)
+    end
+
+    @testset "automatic tiling non-square" begin
+        # test performance nears tiled matrix multiplication (check automatic tiling), for non-square matricies that are multiples of tile dim
+        N = 1024
+        R = 2048
+        M = 512
+        A = rand(N, R)
+        B = rand(R, M)
+        out = zeros(N, M)
+
+        poly_mul(A, B, out) # allow for compiling once
+
+        t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($N, $M))
+        t_tile = @benchmark tiled_mul_notsquare($A, $B, out) setup=(out = zeros($N, $M))
+
+        j = judge(minimum(t_poly), minimum(t_tile))
+
+        @test j.time != :regression # want improvement or invariant (not regression)
+    end
+
+    @testset "automatic tiling any dimensions" begin
+        # test performance nears tiled matrix multiplication (check automatic tiling), for any size matrices
+        N = 1020
+        R = 900
+        M = 981
+        A = rand(N, R)
+        B = rand(R, M)
+        out = zeros(N, M)
+
+        poly_mul(A, B, out) # allow for compiling once
+
+        t_poly = @benchmark poly_mul($A, $B, out) setup=(out = zeros($N, $M))
+        t_tile = @benchmark tiled_mul_any($A, $B, out) setup=(out = zeros($N, $M))
 
         j = judge(minimum(t_poly), minimum(t_tile))
 
@@ -270,7 +351,7 @@ end
         @test j.time == :improvement
     end
 
-    @testset "2D stride test" begin
+    @testset "2D stride" begin
         DIM = 512
         arr = ones(DIM, DIM)
 
@@ -286,7 +367,9 @@ end
     end
 
     @testset "lu decomposition" begin
-        DIM = 512
+        DIM = 1024
+
+        # this step is hard in plain julia (no functions), so we just do it ahead of time
         A = rand(DIM, DIM)*10
         P = zeros(DIM, DIM)
         for i = 1:DIM
