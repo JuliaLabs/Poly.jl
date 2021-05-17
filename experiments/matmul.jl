@@ -76,10 +76,14 @@ optimized = @benchmark mul_optimized($A, $B, out) setup=(out=zeros($n, $m))
 expert = @benchmark LinearAlgebra.mul!(out, $A, $B) setup=(out=zeros($n, $m))
 poly = @benchmark mul_poly($A, $B, out) setup=(out=zeros($n, $m))
 
-@show basic
-@show optimized
-@show expert
-@show poly
+@show memory(basic)
+@show memory(optimized)
+@show memory(expert)
+@show memory(poly)
+@show minimum(basic)
+@show minimum(optimized)
+@show minimum(expert)
+@show minimum(poly)
 
 rbasic = ratio(minimum(basic), minimum(poly))
 roptimized = ratio(minimum(optimized), minimum(poly))
