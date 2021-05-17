@@ -50,6 +50,27 @@ function mul_optimized(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
     end
 end
 
+function mul_optimized_v2(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
+    N = size(C, 1)
+    M = size(C, 2)
+    R = size(A, 2)
+    TILE_DIM = 64
+
+    @simd for gj = 0:TILE_DIM:M-1
+        @simd for t = 0:TILE_DIM:R-1
+            @simd for gi = 0:TILE_DIM:N-1
+                @simd for j = 1:TILE_DIM
+                    @simd for k = 1:TILE_DIM
+                        @simd for i = 1:TILE_DIM
+                            @inbounds C[gi + i, gj + j] += A[gi + i, t + k] * B[t + k, gj + j]
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 function mul_poly(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
     N = size(C, 1)
     M = size(C, 2)
@@ -73,30 +94,37 @@ out = zeros(n, m)
 
 basic = @benchmark mul_basic($A, $B, out) setup=(out=zeros($n, $m))
 optimized = @benchmark mul_optimized($A, $B, out) setup=(out=zeros($n, $m))
+optimized2 = @benchmark mul_optimized_v2($A, $B, out) setup=(out=zeros($n, $m))
 expert = @benchmark LinearAlgebra.mul!(out, $A, $B) setup=(out=zeros($n, $m))
 poly = @benchmark mul_poly($A, $B, out) setup=(out=zeros($n, $m))
 
-@show memory(basic)
-@show memory(optimized)
-@show memory(expert)
-@show memory(poly)
+@show allocs(basic)
+@show allocs(optimized)
+@show allocs(optimized2)
+@show allocs(expert)
+@show allocs(poly)
 @show minimum(basic)
 @show minimum(optimized)
+@show minimum(optimized2)
 @show minimum(expert)
 @show minimum(poly)
 
 rbasic = ratio(minimum(basic), minimum(poly))
 roptimized = ratio(minimum(optimized), minimum(poly))
+roptimized2 = ratio(minimum(optimized2), minimum(poly))
 rexpert = ratio(minimum(expert), minimum(poly))
 
 @show rbasic
 @show roptimized
+@show roptimized2
 @show rexpert
 
 jbasic = judge(minimum(poly), minimum(basic))
 joptimized = judge(minimum(poly), minimum(optimized))
+joptimized2 = judge(minimum(poly), minimum(optimized2))
 jexpert = judge(minimum(poly), minimum(expert))
 
 @show jbasic
 @show joptimized
+@show joptimized2
 @show jexpert
