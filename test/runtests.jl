@@ -414,6 +414,35 @@ using StaticArrays
         @test isapprox(out, A*B)
     end
 
+    @testset "1d jacobi" begin
+        N = 50
+        T = 10
+        a = rand(N)
+        aa = copy(a)
+        b = zeros(N)
+
+        @poly_loop verbose=3 tile=0 for t = 1:T-1
+            for i = 3:N-2
+                b[i] = (a[i - 1] + a[i] + a[i + 1])/3
+            end
+            for ii = 3:N-2
+                a[ii] = b[ii]
+            end
+        end
+
+        bb = zeros(N)
+        for t = 1:T-1
+            for i = 3:N-2
+                bb[i] = (aa[i - 1] + aa[i] + aa[i + 1])/3
+            end
+            for ii = 3:N-2
+                aa[ii] = bb[ii]
+            end
+        end
+
+        @test isapprox(a, aa)
+    end
+
     @testset "lu decomposition" begin
         n = 128
         A = rand(n, n)*10

@@ -11,7 +11,7 @@ if length(ARGS) == 0
 end
 
 
-function mul_naive(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
+function mul_naive(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
     N = size(C, 1)
     M = size(C, 2)
     R = size(A, 2)
@@ -25,13 +25,13 @@ function mul_naive(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
     end
 end
 
-function mul_simple(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
+function mul_simple(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
     N = size(C, 1)
     M = size(C, 2)
     R = size(A, 2)
 
-    @inbounds for j = 1:M
-        for k = 1:R
+    @inbounds for k = 1:R
+        for j = 1:M
             for i = 1:N
                 C[i, j] += A[i, k] * B[k, j]
             end
@@ -39,14 +39,14 @@ function mul_simple(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
     end
 end
 
-function mul_optimized(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
+function mul_optimized(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
     N = size(C, 1)
     M = size(C, 2)
     R = size(A, 2)
     TILE_DIM = 64
 
-    @simd for gj = 0:TILE_DIM:M-1
-        @simd for t = 0:TILE_DIM:R-1
+    @simd for t = 0:TILE_DIM:R-1
+        @simd for gj = 0:TILE_DIM:M-1
             @simd for gi = 0:TILE_DIM:N-1
             tile1 = @MArray zeros(TILE_DIM, TILE_DIM)
             tile2 = @MArray zeros(TILE_DIM, TILE_DIM)
@@ -56,8 +56,8 @@ function mul_optimized(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
                         @inbounds tile2[i, j] = B[t + i, gj + j]
                     end
                 end
-                @simd for j = 1:TILE_DIM
-                    @simd for k = 1:TILE_DIM
+                @simd for k = 1:TILE_DIM
+                    @simd for j = 1:TILE_DIM
                         @simd for i = 1:TILE_DIM
                             @inbounds C[gi + i, gj + j] += tile1[i, k] * tile2[k, j]
                         end
@@ -68,17 +68,17 @@ function mul_optimized(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
     end
 end
 
-function mul_optimized_v2(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
+function mul_optimized_v2(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
     N = size(C, 1)
     M = size(C, 2)
     R = size(A, 2)
     TILE_DIM = 64
 
-    @simd for gj = 0:TILE_DIM:M-1
-        @simd for t = 0:TILE_DIM:R-1
+    @simd for t = 0:TILE_DIM:R-1
+        @simd for gj = 0:TILE_DIM:M-1
             @simd for gi = 0:TILE_DIM:N-1
-                @simd for j = 1:TILE_DIM
-                    @simd for k = 1:TILE_DIM
+                @simd for k = 1:TILE_DIM
+                    @simd for j = 1:TILE_DIM
                         @simd for i = 1:TILE_DIM
                             @inbounds C[gi + i, gj + j] += A[gi + i, t + k] * B[t + k, gj + j]
                         end
@@ -89,7 +89,7 @@ function mul_optimized_v2(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
     end
 end
 
-function mul_poly(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
+function mul_poly(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
     N = size(C, 1)
     M = size(C, 2)
     R = size(A, 2)
@@ -107,7 +107,8 @@ n = 1024
 r = 512
 m = 1024
 A = rand(n, r)
-B = rand(r, m)
+B = rand(m, r)
+B = B'
 out = zeros(n, m)
 
 basic = @benchmark mul_naive($A, $B, out) setup=(out=zeros($n, $m))
