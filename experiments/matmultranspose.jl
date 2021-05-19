@@ -191,7 +191,9 @@ end
 @show minimum(optimized2)
 @show minimum(expert)
 @show minimum(poly)
-@show minimum(polyrt)
+if !thread
+    @show minimum(polyrt)
+end
 
 rbasic = ratio(minimum(basic), minimum(poly))
 rsimple = ratio(minimum(simple), minimum(poly))
