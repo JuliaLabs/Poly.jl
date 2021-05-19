@@ -5,7 +5,12 @@ using BenchmarkTools
 using SIMD
 using Base.Threads
 
-LinearAlgebra.BLAS.set_num_threads(Base.Threads.nthreads())
+num_threads = Base.Threads.nthreads()
+LinearAlgebra.BLAS.set_num_threads(num_threads)
+thread = false
+if num_threads != 1
+    thread = true
+end
 
 
 function mul_naive(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
@@ -86,6 +91,27 @@ function mul_optimized_v2(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}},
     end
 end
 
+function mul_optimized_thread(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
+    N = size(C, 1)
+    M = size(C, 2)
+    R = size(A, 2)
+    TILE_DIM = 64
+
+    @threads for t = 0:TILE_DIM:R-1
+        @simd for gj = 0:TILE_DIM:M-1
+            @simd for gi = 0:TILE_DIM:N-1
+                @simd for k = 1:TILE_DIM
+                    @simd for j = 1:TILE_DIM
+                        @simd for i = 1:TILE_DIM
+                            @inbounds C[gi + i, gj + j] += A[gi + i, t + k] * B[t + k, gj + j]
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 function mul_poly(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
     N = size(C, 1)
     M = size(C, 2)
@@ -114,6 +140,34 @@ function mul_poly_rt(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::A
     end
 end
 
+function mul_poly_thread(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
+    N = size(C, 1)
+    M = size(C, 2)
+    R = size(A, 2)
+
+    @poly_loop thread=true for i = 1:N
+        for j = 1:M
+            for k = 1:R
+                C[i, j] += A[i, k] * B[k, j]
+            end
+        end
+    end
+end
+
+function mul_poly_rt_thread(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
+    N = size(C, 1)
+    M = size(C, 2)
+    R = size(A, 2)
+
+    @poly_loop thread=true for i = 1:$N
+        for j = 1:$M
+            for k = 1:$R
+                C[i, j] += A[i, k] * B[k, j]
+            end
+        end
+    end
+end
+
 n = 1024
 r = 512
 m = 1024
@@ -125,10 +179,16 @@ out = zeros(n, m)
 basic = @benchmark mul_naive($A, $B, out) setup=(out=zeros($n, $m))
 simple = @benchmark mul_simple($A, $B, out) setup=(out=zeros($n, $m))
 optimized = @benchmark mul_optimized($A, $B, out) setup=(out=zeros($n, $m))
-optimized2 = @benchmark mul_optimized_v2($A, $B, out) setup=(out=zeros($n, $m))
+if thread
+    optimized2 = @benchmark mul_optimized_thread($A, $B, out) setup=(out=zeros($n, $m))
+    poly = @benchmark mul_poly_thread($A, $B, out) setup=(out=zeros($n, $m))
+    polyrt = @benchmark mul_poly_rt_thread($A, $B, out) setup=(out=zeros($n, $m))
+else
+    optimized2 = @benchmark mul_optimized_v2($A, $B, out) setup=(out=zeros($n, $m))
+    poly = @benchmark mul_poly($A, $B, out) setup=(out=zeros($n, $m))
+    polyrt = @benchmark mul_poly_rt($A, $B, out) setup=(out=zeros($n, $m))
+end
 expert = @benchmark LinearAlgebra.mul!(out, $A, $B) setup=(out=zeros($n, $m))
-poly = @benchmark mul_poly($A, $B, out) setup=(out=zeros($n, $m))
-polyrt = @benchmark mul_poly_rt($A, $B, out) setup=(out=zeros($n, $m))
 
 @show allocs(basic)
 @show allocs(simple)

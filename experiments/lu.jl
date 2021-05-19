@@ -3,7 +3,12 @@ using LinearAlgebra
 using BenchmarkTools
 using Base.Threads
 
-LinearAlgebra.BLAS.set_num_threads(Base.Threads.nthreads())
+num_threads = Base.Threads.nthreads()
+LinearAlgebra.BLAS.set_num_threads(num_threads)
+thread = false
+if num_threads != 1
+    thread = true
+end
 
 
 function lu_naive(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
@@ -52,7 +57,7 @@ end
 
 function lu_poly(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
     n = size(PA, 1)
-    @poly_loop for j=1:n
+    @poly_loop thread=thread for j=1:n
         L[j, j] = 1.0
         for i=1:j
             s1 = 0.0
@@ -76,7 +81,7 @@ function lu_poly_rt(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
     n = size(PA, 1)
     s1 = 0.0
     s2 = 0.0
-    @poly_loop for j=1:$n
+    @poly_loop thread=thread for j=1:$n
         L[j, j] = 1.0
         for i=1:j
             s1 = 0.0
