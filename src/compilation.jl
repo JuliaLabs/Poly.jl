@@ -78,14 +78,14 @@ KERNEL ARG FUNCTIONS
 """
 get all function arguments to kernel
 """
-function get_kernel_args(kernel::LoopKernel)::Set{Symbol}
+function get_kernel_args(kernel::LoopKernel; use_defined=false)::Set{Symbol}
     all_symbols = get_all_symbols(kernel)
     defined_symbols = Set{Symbol}()
 
     # get all symbols defined in LHS of instructions
     for instruction in kernel.instructions
         lhs = instruction.body.args[1]
-        if typeof(lhs) == Symbol && instruction.body.head == :(=)
+        if typeof(lhs) == Symbol && instruction.body.head == :(=) && !use_defined
             push!(defined_symbols, lhs)
         end
     end

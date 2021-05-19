@@ -281,7 +281,7 @@ macro poly_loop(ex0...)
             push!(exprs, Expr(:call, :Val, Expr(:escape, sym)))
         end
         # get the function args for kernel
-        func_args = collect(get_kernel_args(poly_loop(ex0)))
+        func_args = collect(get_kernel_args(poly_loop(ex0), use_defined=true))
         # unique name
         name = gensym("delay_poly_loop")
         eval(quote

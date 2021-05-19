@@ -74,6 +74,8 @@ end
 
 function lu_poly_rt(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
     n = size(PA, 1)
+    s1 = 0.0
+    s2 = 0.0
     @poly_loop for j=1:$n
         L[j, j] = 1.0
         for i=1:j
