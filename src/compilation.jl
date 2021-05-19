@@ -1,5 +1,5 @@
 using MacroTools
-using JuLoop
+using Poly
 
 export compile
 
@@ -159,7 +159,7 @@ function compile(kernel::LoopKernel; debug=false, verbose=0, tile=-1)
     body = run_polyhedral_model(kernel, debug=debug, verbose=verbose, tile=tile)
 
     expr = quote
-        function $(gensym(:JuLoop))(;$(args...))
+        function $(gensym(:Poly))(;$(args...))
             $(body)
         end
     end

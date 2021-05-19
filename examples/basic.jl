@@ -1,4 +1,4 @@
-using JuLoop
+using Poly
 
 # multiply arrays and double
 instructions = [Instruction(:mult, :(out[i, j] += A[i, k] * B[k, j]), Set()),

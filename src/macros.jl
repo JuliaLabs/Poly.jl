@@ -1,4 +1,4 @@
-using JuLoop
+using Poly
 export @poly_loop, @depends_on, sub_sym_in_ex
 using MacroTools
 

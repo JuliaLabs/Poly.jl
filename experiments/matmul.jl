@@ -1,4 +1,4 @@
-using JuLoop
+using Poly
 using StaticArrays
 using LinearAlgebra
 using BenchmarkTools

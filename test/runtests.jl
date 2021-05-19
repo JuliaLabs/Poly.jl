@@ -1,4 +1,4 @@
-using JuLoop
+using Poly
 using Test
 using StaticArrays
 

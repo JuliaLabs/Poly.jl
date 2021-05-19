@@ -1,4 +1,4 @@
-using JuLoop
+using Poly
 using MacroTools
 
 export get_best_nesting_order

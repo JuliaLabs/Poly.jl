@@ -1,4 +1,4 @@
-module JuLoop
+module Poly
 
 export LoopKernel, Domain, Instruction
 

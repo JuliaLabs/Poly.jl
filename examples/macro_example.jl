@@ -1,4 +1,4 @@
-using JuLoop
+using Poly
 
 A = rand(10)
 out = zeros(10)

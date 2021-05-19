@@ -1,4 +1,4 @@
-using JuLoop
+using Poly
 using LinearAlgebra
 using BenchmarkTools
 using Base.Threads
