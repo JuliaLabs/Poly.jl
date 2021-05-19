@@ -7,7 +7,7 @@ using Base.Threads
 
 LinearAlgebra.BLAS.set_num_threads(Base.Threads.nthreads())
 
-function jacobi_naive(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
+function jacobi_naive(a::Array{T,1}, b::Array{T,1}, timesteps, n) where {T}
     for t = 1:timesteps-1
         for i = 3:n-2
             b[i] = (a[i - 1] + a[i] + a[i + 1])/3
@@ -18,7 +18,7 @@ function jacobi_naive(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
     end
 end
 
-function jacobi_simple(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
+function jacobi_simple(a::Array{T,1}, b::Array{T,1}, timesteps, n) where {T}
     @inbounds for t = 1:timesteps-1
         for i = 3:n-2
             b[i] = (a[i - 1] + a[i] + a[i + 1])/3
@@ -29,7 +29,7 @@ function jacobi_simple(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
     end
 end
 
-function jacobi_optimized(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
+function jacobi_optimized(a::Array{T,1}, b::Array{T,1}, timesteps, n) where {T}
     @simd for t = 1:timesteps-1
         @simd for i = 3:n-2
             @inbounds b[i] = (a[i - 1] + a[i] + a[i + 1])/3
@@ -40,7 +40,7 @@ function jacobi_optimized(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
     end
 end
 
-function jacobi_poly(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
+function jacobi_poly(a::Array{T,1}, b::Array{T,1}, timesteps, n) where {T}
     @poly_loop tile=0 for t = 1:timesteps-1
         for i = 3:n-2
             b[i] = (a[i - 1] + a[i] + a[i + 1])/3
@@ -51,7 +51,7 @@ function jacobi_poly(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
     end
 end
 
-function jacobi_poly_rt(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
+function jacobi_poly_rt(a::Array{T,1}, b::Array{T,1}, timesteps, n) where {T}
     @poly_loop tile=0 for t = 1:$timesteps-1
         for i = 3:$n-2
             b[i] = (a[i - 1] + a[i] + a[i + 1])/3
