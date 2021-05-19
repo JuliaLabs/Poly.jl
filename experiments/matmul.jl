@@ -166,7 +166,7 @@ basic = @benchmark mul_naive($A, $B, out) setup=(out=zeros($n, $m))
 simple = @benchmark mul_simple($A, $B, out) setup=(out=zeros($n, $m))
 optimized = @benchmark mul_optimized($A, $B, out) setup=(out=zeros($n, $m))
 if thread
-    optimized2 = @benchmark mul_optimized_v2_thread($A, $B, out) setup=(out=zeros($n, $m))
+    optimized2 = @benchmark mul_optimized_thread($A, $B, out) setup=(out=zeros($n, $m))
     poly = @benchmark mul_poly_thread($A, $B, out) setup=(out=zeros($n, $m))
     polyrt = nothing
 else
