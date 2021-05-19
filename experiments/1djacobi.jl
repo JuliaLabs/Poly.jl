@@ -3,13 +3,9 @@ using StaticArrays
 using LinearAlgebra
 using BenchmarkTools
 using SIMD
+using Base.Threads
 
-# run with --threads auto for jacobitithreading
-if length(ARGS) == 0
-    # so BLAS can't cheat
-    LinearAlgebra.BLAS.set_num_threads(1)
-end
-
+LinearAlgebra.BLAS.set_num_threads(Base.Threads.nthreads())
 
 function jacobi_naive(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
     for t = 1:timesteps-1

@@ -1,12 +1,9 @@
 using JuLoop
 using LinearAlgebra
 using BenchmarkTools
+using Base.Threads
 
-# run with --threads auto for multithreading
-if length(ARGS) == 0
-    # so BLAS can't cheat
-    LinearAlgebra.BLAS.set_num_threads(1)
-end
+LinearAlgebra.BLAS.set_num_threads(Base.Threads.nthreads())
 
 
 function lu_naive(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}

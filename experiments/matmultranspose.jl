@@ -3,12 +3,9 @@ using StaticArrays
 using LinearAlgebra
 using BenchmarkTools
 using SIMD
+using Base.Threads
 
-# run with --threads auto for multithreading
-if length(ARGS) == 0
-    # so BLAS can't cheat
-    LinearAlgebra.BLAS.set_num_threads(1)
-end
+LinearAlgebra.BLAS.set_num_threads(Base.Threads.nthreads())
 
 
 function mul_naive(A::Array{T,2}, B::LinearAlgebra.Adjoint{T,Array{T,2}}, C::Array{T,2}) where {T}
