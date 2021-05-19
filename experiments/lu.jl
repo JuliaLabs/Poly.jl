@@ -13,95 +13,140 @@ end
 
 function lu_naive(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
     n = size(PA, 1)
+    for k=1:n
+        for i=k+1:n
+            PA[i, k] /= PA[k, k]
+        end
+        for ii=k+1:n
+            for j=k+1:n
+                PA[ii, j] -= PA[ii,k]*PA[k,j]
+            end
+        end
+    end
+
+    for j=1:n
+        for i=1:j
+            U[i, j] = PA[i, j]
+        end
+    end
+
     for j=1:n
         L[j, j] = 1.0
-        for i=1:j
-            s1 = 0.0
-            for k=1:i
-                s1 += U[k, j] * L[i, k]
-            end
-            U[i, j] = PA[i, j] - s1
-        end
-
-        for ii=j+1:n
-            s2 = 0.0
-            for kk=1:j
-                s2 += U[kk, j] * L[ii, kk]
-            end
-            L[ii, j] = (PA[ii, j] - s2) / U[j, j]
+        for i=j+1:n
+            L[i, j] = PA[i, j]
         end
     end
 end
 
 function lu_simple(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
     n = size(PA, 1)
+    @inbounds for k=1:n
+        for i=k+1:n
+            PA[i, k] /= PA[k, k]
+        end
+        for j=k+1:n
+            for ii=k+1:n
+                PA[ii, j] -= PA[ii,k]*PA[k,j]
+            end
+        end
+    end
+
+    @inbounds for j=1:n
+        for i=1:j
+            U[i, j] = PA[i, j]
+        end
+    end
+
     @inbounds for j=1:n
         L[j, j] = 1.0
-        for i=1:j
-            s1 = 0.0
-            for k=1:i
-                s1 += U[k, j] * L[i, k]
-            end
-            U[i, j] = PA[i, j] - s1
-        end
-
-        for ii=j+1:n
-            s2 = 0.0
-            for kk=1:j
-                s2 += U[kk, j] * L[ii, kk]
-            end
-            L[ii, j] = (PA[ii, j] - s2) / U[j, j]
+        for i=j+1:n
+            L[i, j] = PA[i, j]
         end
     end
 end
 
 function lu_poly(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
     n = size(PA, 1)
-    @poly_loop thread=thread for j=1:n
-        L[j, j] = 1.0
-        for i=1:j
-            s1 = 0.0
-            for k=1:i
-                s1 += U[k, j] * L[i, k]
-            end
-            U[i, j] = PA[i, j] - s1
+    @poly_loop for k=1:n
+        for i=k+1:n
+            PA[i, k] /= PA[k, k]
         end
-
-        for ii=j+1:n
-            s2 = 0.0
-            for kk=1:j
-                s2 += U[kk, j] * L[ii, kk]
+        for ii=k+1:n
+            for j=k+1:n
+                PA[ii, j] -= PA[ii,k]*PA[k,j]
             end
-            L[ii, j] = (PA[ii, j] - s2) / U[j, j]
+        end
+    end
+
+    @poly_loop for j=1:n
+        for i=1:j
+            U[i, j] = PA[i, j]
+        end
+    end
+
+    @poly_loop for j=1:n
+        L[j, j] = 1.0
+        for i=j+1:n
+            L[i, j] = PA[i, j]
         end
     end
 end
 
 function lu_poly_rt(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
     n = size(PA, 1)
-    s1 = 0.0
-    s2 = 0.0
-    @poly_loop thread=thread for j=1:$n
-        L[j, j] = 1.0
-        for i=1:j
-            s1 = 0.0
-            for k=1:i
-                s1 += U[k, j] * L[i, k]
-            end
-            U[i, j] = PA[i, j] - s1
+    @poly_loop for k=1:$n
+        for i=k+1:$n
+            PA[i, k] /= PA[k, k]
         end
-
-        for ii=j+1:$n
-            s2 = 0.0
-            for kk=1:j
-                s2 += U[kk, j] * L[ii, kk]
+        for ii=k+1:$n
+            for j=k+1:$n
+                PA[ii, j] -= PA[ii,k]*PA[k,j]
             end
-            L[ii, j] = (PA[ii, j] - s2) / U[j, j]
+        end
+    end
+
+    @poly_loop for j=1:$n
+        for i=1:j
+            U[i, j] = PA[i, j]
+        end
+    end
+
+    @poly_loop for j=1:$n
+        L[j, j] = 1.0
+        for i=j+1:$n
+            L[i, j] = PA[i, j]
         end
     end
 end
 
-dim = 1024
+function lu_poly_thread(PA::Array{T,2}, L::Array{T,2}, U::Array{T,2}) where {T}
+    n = size(PA, 1)
+    @poly_loop thread=true for k=1:n
+        for i=k+1:n
+            PA[i, k] /= PA[k, k]
+        end
+        for ii=k+1:n
+            for j=k+1:n
+                PA[ii, j] -= PA[ii,k]*PA[k,j]
+            end
+        end
+    end
+
+    @poly_loop thread=true for j=1:n
+        for i=1:j
+            U[i, j] = PA[i, j]
+        end
+    end
+
+    @poly_loop thread=true for j=1:n
+        L[j, j] = 1.0
+        for i=j+1:n
+            L[i, j] = PA[i, j]
+        end
+    end
+end
+
+dim = 128
 A = rand(dim, dim)*10
 P = zeros(dim, dim)
 for i = 1:dim
@@ -118,51 +163,67 @@ PA = P*A
 L = zeros(dim, dim)
 U = zeros(dim, dim)
 
-basic = @benchmark lu_naive($PA, L, U) setup=(L = zeros($dim, $dim); U = zeros($dim, $dim))
-simple = @benchmark lu_simple($PA, L, U) setup=(L = zeros($dim, $dim); U = zeros($dim, $dim))
-expert = @benchmark LinearAlgebra.lu($PA,  Val(false))
-poly = @benchmark lu_poly($PA, L, U) setup=(L = zeros($dim, $dim); U = zeros($dim, $dim))
-polyrt = @benchmark lu_poly_rt($PA, L, U) setup=(L = zeros($dim, $dim); U = zeros($dim, $dim))
+basic = @benchmark lu_naive(in, L, U) setup=(in = copy(PA); L = zeros($dim, $dim); U = zeros($dim, $dim))
+simple = @benchmark lu_simple(in, L, U) setup=(in = copy(PA); L = zeros($dim, $dim); U = zeros($dim, $dim))
+expert = @benchmark LinearAlgebra.lu!(in,  Val(false)) setup=(in = copy(PA))
+if thread
+    poly = @benchmark lu_poly_thread(in, L, U) setup=(in = copy(PA); L = zeros($dim, $dim); U = zeros($dim, $dim))
+else
+    poly = @benchmark lu_poly(in, L, U) setup=(in = copy(PA); L = zeros($dim, $dim); U = zeros($dim, $dim))
+    polyrt = @benchmark lu_poly_rt(in, L, U) setup=(in = copy(PA); L = zeros($dim, $dim); U = zeros($dim, $dim))
+end
 
 @show allocs(basic)
 @show allocs(simple)
 @show allocs(expert)
 @show allocs(poly)
-@show allocs(polyrt)
+if !thread
+    @show allocs(polyrt)
+end
 @show minimum(basic)
 @show minimum(simple)
 @show minimum(expert)
 @show minimum(poly)
-@show minimum(polyrt)
+if !thread
+    @show minimum(polyrt)
+end
 
 rbasic = ratio(minimum(basic), minimum(poly))
 rsimple = ratio(minimum(simple), minimum(poly))
 rexpert = ratio(minimum(expert), minimum(poly))
 
-rbasicrt = ratio(minimum(basic), minimum(polyrt))
-rsimplert = ratio(minimum(simple), minimum(polyrt))
-rexpertrt = ratio(minimum(expert), minimum(polyrt))
+if !thread
+    rbasicrt = ratio(minimum(basic), minimum(polyrt))
+    rsimplert = ratio(minimum(simple), minimum(polyrt))
+    rexpertrt = ratio(minimum(expert), minimum(polyrt))
+end
 
 @show rbasic
 @show rsimple
 @show rexpert
 
-@show rbasicrt
-@show rsimplert
-@show rexpertrt
+if !thread
+    @show rbasicrt
+    @show rsimplert
+    @show rexpertrt
+end
 
 jbasic = judge(minimum(poly), minimum(basic))
 jsimple = judge(minimum(poly), minimum(simple))
 jexpert = judge(minimum(poly), minimum(expert))
 
-jbasicrt = judge(minimum(polyrt), minimum(basic))
-jsimplert = judge(minimum(polyrt), minimum(simple))
-jexpertrt = judge(minimum(polyrt), minimum(expert))
+if !thread
+    jbasicrt = judge(minimum(polyrt), minimum(basic))
+    jsimplert = judge(minimum(polyrt), minimum(simple))
+    jexpertrt = judge(minimum(polyrt), minimum(expert))
+end
 
 @show jbasic
 @show jsimple
 @show jexpert
 
-@show jbasicrt
-@show jsimplert
-@show jexpertrt
+if !thread
+    @show jbasicrt
+    @show jsimplert
+    @show jexpertrt
+end

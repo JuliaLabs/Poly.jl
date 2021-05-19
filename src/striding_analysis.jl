@@ -145,6 +145,10 @@ function get_best_nesting_order_on_domains(parent_domain::Domain, stride_order::
           good
         end
 
+        if i == nothing
+            break
+        end
+
         push!(nesting_order, stride_order[i])
     end
     # add last domain
