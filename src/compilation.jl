@@ -151,12 +151,12 @@ COMPILATION
 """
 compile native julia code given a kernel
 """
-function compile(kernel::LoopKernel; debug=false, verbose=0, tile=-1)
+function compile(kernel::LoopKernel; debug=false, verbose=0, tile=-1, thread=false)
     # kernel args
     args = get_kernel_args(kernel)
     set_kernel_consts(kernel)
 
-    body = run_polyhedral_model(kernel, debug=debug, verbose=verbose, tile=tile)
+    body = run_polyhedral_model(kernel, debug=debug, verbose=verbose, tile=tile, thread=thread)
 
     expr = quote
         function $(gensym(:Poly))(;$(args...))
@@ -169,12 +169,12 @@ end
 """
 compile native julia code given a kernel to an expression
 """
-function compile_expr(kernel::LoopKernel; debug=false, verbose=0, tile=-1)::Expr
+function compile_expr(kernel::LoopKernel; debug=false, verbose=0, tile=-1, thread=false)::Expr
     # kernel "args" for isl
     get_kernel_args(kernel)
     set_kernel_consts(kernel)
 
-    expr = run_polyhedral_model(kernel, debug=debug, verbose=verbose, tile=tile)
+    expr = run_polyhedral_model(kernel, debug=debug, verbose=verbose, tile=tile, thread=thread)
 
     return expr
 end

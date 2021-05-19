@@ -175,6 +175,12 @@ Tiling:
     Tiling is usually faster, but in cases where the loop bounds are small it will just introduce more loop overhead. Unless tile=0 is set, the outermost band (grouping of permutable loops) will be tiled.
     Warning: some non-uniform access patterns can result in invalid tiling. This is a known bug that is pretty rare.
 
+Threading
+    To enable multithreading of the outermost loop, pass thread=true:
+        Ex:
+        @poly_loop thread=true for i=1:n...
+    Disabled by default. Note that julia must be run with --threads=auto (or a number) to enable threading at all
+
 Loop bounds:
     Loop bounds must NOT be function calls (such as size), since ISL cannot evaluate them. One easy workaround is something like:
         n = size(out, 1)
@@ -238,6 +244,7 @@ macro poly_loop(ex0...)
     debug = false
     verbose = 0
     tile = -1 # all tiles by default
+    thread = false # don't thread by default
     # get set options
     for arg in ex0[1:end-1] # last is for loop
         if arg.args[1] == :debug
@@ -246,6 +253,8 @@ macro poly_loop(ex0...)
             verbose = arg.args[2]
         elseif arg.args[1] == :tile
             tile = arg.args[2]
+        elseif arg.args[1] == :thread
+            thread = arg.args[2]
         end
     end
     if typeof(debug) != Bool
@@ -258,6 +267,9 @@ macro poly_loop(ex0...)
         error("expected integer for tile, got: ", tile)
     elseif tile < -1
         error("expected tile >= -1, got: ", tile)
+    end
+    if typeof(thread) != Bool
+        error("expected boolean for thread, got: ", thread)
     end
 
     ex0 = ex0[end] # expression is last arg
@@ -292,12 +304,13 @@ macro poly_loop(ex0...)
                 d = $(QuoteNode(debug))
                 v = $(QuoteNode(verbose))
                 t = $(QuoteNode(tile))
+                th = $(QuoteNode(thread))
                 for (i, val) in enumerate(vals)
                     N = __get(val)
                     expr = sub_sym_in_ex(expr, syms[i], N)
                 end
                 kernel = poly_loop(expr)
-                expr = compile_expr(kernel, debug=d, verbose=v, tile=t)
+                expr = compile_expr(kernel, debug=d, verbose=v, tile=t, thread=th)
                 expr
             end
         end)
@@ -307,7 +320,7 @@ macro poly_loop(ex0...)
     else
         # make kernel
         kernel = poly_loop(ex0)
-        expr = MacroTools.prettify(compile_expr(kernel, debug=debug, verbose=verbose, tile=tile))
+        expr = MacroTools.prettify(compile_expr(kernel, debug=debug, verbose=verbose, tile=tile, thread=thread))
         esc(quote
             $(expr)
         end)

@@ -214,6 +214,28 @@ using StaticArrays
         @test arr == arr2
     end
 
+    @testset "threading test" begin
+        n = 128
+        r = 128
+        m = 128
+        A = rand(n, r)
+        B = rand(r, m)
+        out = zeros(n, m)
+        n = size(out, 1)
+        m = size(out, 2)
+        r = size(A, 2)
+
+        @poly_loop thread=true for i = 1:n
+            for j = 1:m
+                for k = 1:r
+                    out[i, j] += A[i, k] * B[k, j]
+                end
+            end
+        end
+
+        @test isapprox(out, A*B)
+    end
+
     @testset "if block test" begin
         # tests that an if block works
         n = 10

@@ -26,7 +26,7 @@ if verbose is
     2: initial C code, loop orderings, new schedule, final C code, and final Julia code printed
     3: all of 2 plus domain, access relations, dependence relations, original schedule, and new schedule constraints printed
 """
-function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-1)::Expr
+function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-1, thread=false)::Expr
     """
     initialize context and set error printing options to warn/silence
     """
@@ -200,7 +200,7 @@ function run_polyhedral_model(kernel::LoopKernel; debug=false, verbose=0, tile=-
     """
     parse back to Julia code
     """
-    expr = parse_ast(ast, kernel)
+    expr = parse_ast(ast, kernel, thread=thread, outermost=true)
     if verbose >= 1
         println("===FINAL JULIA CODE===")
         @show expr
@@ -611,27 +611,27 @@ ISL -> Julia
 """
 parse an isl AST back into julia code
 """
-function parse_ast(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+function parse_ast(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel; thread=false, outermost=false)::Expr
     node_type = ISL.API.isl_ast_node_get_type(ast)
 
     if node_type == ISL.API.isl_ast_node_for
         # for loop
-        expr = parse_ast_for(ast, kernel)
+        expr = parse_ast_for(ast, kernel, thread=thread, outermost=outermost)
 
     elseif node_type == ISL.API.isl_ast_node_if
         # if statement
-        expr = parse_ast_if(ast, kernel)
+        expr = parse_ast_if(ast, kernel, thread=thread)
 
     elseif node_type == ISL.API.isl_ast_node_block
         # compound node- multiple elements in block
-        expr = parse_ast_block(ast, kernel)
+        expr = parse_ast_block(ast, kernel, thread=thread)
 
     elseif node_type == ISL.API.isl_ast_node_mark
         # mark in the ast- comment
 
     elseif node_type == ISL.API.isl_ast_node_user
         # expression statement
-        expr = parse_ast_user(ast, kernel)
+        expr = parse_ast_user(ast, kernel, thread=thread)
 
     elseif node_type == ISL.API.isl_ast_node_error
         # error- quit
@@ -643,7 +643,7 @@ end
 """
 parse an ast node representing a for loop into an expression
 """
-function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel; thread=false, outermost=false)::Expr
     executes_once = ISL.API.isl_ast_node_for_is_degenerate(ast) # if loop executes only once
 
     # loop qualities
@@ -672,25 +672,48 @@ function parse_ast_for(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
             error("unexpected conditional operator ", cond.head)
         end
 
-        if step == 1
-            # for name = lb:up
-                # body
-            expr = quote
-                for $name = $lb:$ub
-                    $body
+        if outermost && thread
+            if step == 1
+                # for name = lb:up
+                    # body
+                expr = quote
+                    Base.Threads.@threads for $name = $lb:$ub
+                        $body
+                    end
                 end
-            end
-            return expr
+                return expr
 
-        else
-            # for name = lb:step:up
-                # body
-            expr = quote
-                for $name = $lb:$step:$ub
-                    $body
+            else
+                # for name = lb:step:up
+                    # body
+                expr = quote
+                    Base.Threads.@threads for $name = $lb:$step:$ub
+                        $body
+                    end
                 end
+                return expr
             end
-            return expr
+        else
+            if step == 1
+                # for name = lb:up
+                    # body
+                expr = quote
+                    for $name = $lb:$ub
+                        $body
+                    end
+                end
+                return expr
+
+            else
+                # for name = lb:step:up
+                    # body
+                expr = quote
+                    for $name = $lb:$step:$ub
+                        $body
+                    end
+                end
+                return expr
+            end
         end
     end
 end
@@ -699,11 +722,11 @@ end
 """
 parse an ast node representing an if block into an expression
 """
-function parse_ast_if(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+function parse_ast_if(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel; thread=false)::Expr
     cond = ISL.API.isl_ast_node_if_get_cond(ast)
     cond = parse_ast_expr(cond)
     if_body = ISL.API.isl_ast_node_if_get_then(ast)
-    if_body = parse_ast(if_body, kernel)
+    if_body = parse_ast(if_body, kernel, thread=thread)
     has_else = ISL.API.isl_ast_node_if_has_else(ast)
     if has_else == ISL.API.isl_bool_true
         # if cond
@@ -712,7 +735,7 @@ function parse_ast_if(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
             # else_body
         # end
         else_body = ISL.API.isl_ast_node_if_get_else(ast)
-        else_body = parse_ast(else_body, kernel)
+        else_body = parse_ast(else_body, kernel, thread=thread)
         expr = quote
             if $cond
                 $if_body
@@ -738,13 +761,13 @@ end
 """
 parse an ast node representing a block into an expression
 """
-function parse_ast_block(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+function parse_ast_block(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel; thread=false)::Expr
     children = ISL.API.isl_ast_node_block_get_children(ast)
     n = ISL.API.isl_ast_node_list_n_ast_node(children)
     exs = []
     for i=0:n-1
         child = ISL.API.isl_ast_node_list_get_at(children, i)
-        push!(exs, parse_ast(child, kernel))
+        push!(exs, parse_ast(child, kernel, thread=thread))
     end
     return quote $(exs...) end
 end
@@ -780,7 +803,7 @@ end
 """
 parse an ast node representing an expression
 """
-function parse_ast_user(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel)::Expr
+function parse_ast_user(ast::Ptr{ISL.API.isl_ast_node}, kernel::LoopKernel; thread=false)::Expr
     expr = ISL.API.isl_ast_node_user_get_expr(ast)
     ISL.API.isl_ast_expr_free(expr)
     first_expr = ISL.API.isl_ast_expr_op_get_arg(expr, 0) # first arg is "function" name (symbol cooresponding to instruction)
