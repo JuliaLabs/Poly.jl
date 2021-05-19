@@ -135,6 +135,11 @@ uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 [[SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
 
+[[SIMD]]
+git-tree-sha1 = "2318299b4c8e8fe06f6f9114fb4404bd1461ae48"
+uuid = "fdea26ae-647d-5447-a871-4b548cad5224"
+version = "3.3.0"
+
 [[Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 

@@ -10,6 +10,7 @@ Hwloc = "0e44f5e4-bd66-52a0-8798-143a42290a1d"
 ISL = "4d9053e4-97a6-4476-8996-fca684647641"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+SIMD = "fdea26ae-647d-5447-a871-4b548cad5224"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
