@@ -100,19 +100,19 @@ function mul_poly(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
     end
 end
 
-# function mul_poly_rt(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
-#     N = size(C, 1)
-#     M = size(C, 2)
-#     R = size(A, 2)
-#
-#     @poly_loop for i = 1:$N
-#         for j = 1:$M
-#             for k = 1:$R
-#                 C[i, j] += A[i, k] * B[k, j]
-#             end
-#         end
-#     end
-# end
+function mul_poly_rt(A::Array{T,2}, B::Array{T,2}, C::Array{T,2}) where {T}
+    N = size(C, 1)
+    M = size(C, 2)
+    R = size(A, 2)
+
+    @poly_loop for i = 1:$N
+        for j = 1:$M
+            for k = 1:$R
+                C[i, j] += A[i, k] * B[k, j]
+            end
+        end
+    end
+end
 
 n = 1024
 r = 512
@@ -127,7 +127,7 @@ optimized = @benchmark mul_optimized($A, $B, out) setup=(out=zeros($n, $m))
 optimized2 = @benchmark mul_optimized_v2($A, $B, out) setup=(out=zeros($n, $m))
 expert = @benchmark LinearAlgebra.mul!(out, $A, $B) setup=(out=zeros($n, $m))
 poly = @benchmark mul_poly($A, $B, out) setup=(out=zeros($n, $m))
-# polyrt = @benchmark mul_poly_rt($A, $B, out) setup=(out=zeros($n, $m))
+polyrt = @benchmark mul_poly_rt($A, $B, out) setup=(out=zeros($n, $m))
 
 @show allocs(basic)
 @show allocs(simple)
@@ -135,14 +135,14 @@ poly = @benchmark mul_poly($A, $B, out) setup=(out=zeros($n, $m))
 @show allocs(optimized2)
 @show allocs(expert)
 @show allocs(poly)
-# @show allocs(polyrt)
+@show allocs(polyrt)
 @show minimum(basic)
 @show minimum(simple)
 @show minimum(optimized)
 @show minimum(optimized2)
 @show minimum(expert)
 @show minimum(poly)
-# @show minimum(polyrt)
+@show minimum(polyrt)
 
 rbasic = ratio(minimum(basic), minimum(poly))
 rsimple = ratio(minimum(simple), minimum(poly))
@@ -150,11 +150,11 @@ roptimized = ratio(minimum(optimized), minimum(poly))
 roptimized2 = ratio(minimum(optimized2), minimum(poly))
 rexpert = ratio(minimum(expert), minimum(poly))
 
-# rbasicrt = ratio(minimum(basic), minimum(polyrt))
-# rsimplert = ratio(minimum(simple), minimum(polyrt))
-# roptimizedrt = ratio(minimum(optimized), minimum(polyrt))
-# roptimized2rt = ratio(minimum(optimized2), minimum(polyrt))
-# rexpertrt = ratio(minimum(expert), minimum(polyrt))
+rbasicrt = ratio(minimum(basic), minimum(polyrt))
+rsimplert = ratio(minimum(simple), minimum(polyrt))
+roptimizedrt = ratio(minimum(optimized), minimum(polyrt))
+roptimized2rt = ratio(minimum(optimized2), minimum(polyrt))
+rexpertrt = ratio(minimum(expert), minimum(polyrt))
 
 @show rbasic
 @show rsimple
@@ -162,11 +162,11 @@ rexpert = ratio(minimum(expert), minimum(poly))
 @show roptimized2
 @show rexpert
 
-# @show rbasicrt
-# @show rsimplert
-# @show roptimizedrt
-# @show roptimized2rt
-# @show rexpertrt
+@show rbasicrt
+@show rsimplert
+@show roptimizedrt
+@show roptimized2rt
+@show rexpertrt
 
 jbasic = judge(minimum(poly), minimum(basic))
 jsimple = judge(minimum(poly), minimum(simple))
@@ -174,11 +174,11 @@ joptimized = judge(minimum(poly), minimum(optimized))
 joptimized2 = judge(minimum(poly), minimum(optimized2))
 jexpert = judge(minimum(poly), minimum(expert))
 
-# jbasicrt = judge(minimum(polyrt), minimum(basic))
-# jsimplert = judge(minimum(polyrt), minimum(simple))
-# joptimizedrt = judge(minimum(polyrt), minimum(optimized))
-# joptimized2rt = judge(minimum(polyrt), minimum(optimized2))
-# jexpertrt = judge(minimum(polyrt), minimum(expert))
+jbasicrt = judge(minimum(polyrt), minimum(basic))
+jsimplert = judge(minimum(polyrt), minimum(simple))
+joptimizedrt = judge(minimum(polyrt), minimum(optimized))
+joptimized2rt = judge(minimum(polyrt), minimum(optimized2))
+jexpertrt = judge(minimum(polyrt), minimum(expert))
 
 @show jbasic
 @show jsimple
@@ -186,8 +186,8 @@ jexpert = judge(minimum(poly), minimum(expert))
 @show joptimized2
 @show jexpert
 
-# @show jbasicrt
-# @show jsimplert
-# @show joptimizedrt
-# @show joptimized2rt
-# @show jexpertrt
+@show jbasicrt
+@show jsimplert
+@show joptimizedrt
+@show joptimized2rt
+@show jexpertrt

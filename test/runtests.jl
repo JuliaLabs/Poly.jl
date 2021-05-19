@@ -421,7 +421,7 @@ using StaticArrays
         aa = copy(a)
         b = zeros(N)
 
-        @poly_loop verbose=3 tile=0 for t = 1:T-1
+        @poly_loop tile=0 for t = 1:T-1
             for i = 3:N-2
                 b[i] = (a[i - 1] + a[i] + a[i + 1])/3
             end

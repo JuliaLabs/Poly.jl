@@ -282,9 +282,11 @@ macro poly_loop(ex0...)
         end
         # get the function args for kernel
         func_args = collect(get_kernel_args(poly_loop(ex0)))
-        quote
+        # unique name
+        name = gensym("delay_poly_loop")
+        eval(quote
             # generated function will have the values of the symbols for replacing at runtime
-            @generated function delay_poly_loop($(map(esc, func_args)...), vals...)
+            @generated function $name($(func_args...), vals...)
                 expr = $(QuoteNode(ex0))
                 syms = $(QuoteNode(sub_symbols))
                 d = $(QuoteNode(debug))
@@ -298,7 +300,9 @@ macro poly_loop(ex0...)
                 expr = compile_expr(kernel, debug=d, verbose=v, tile=t)
                 expr
             end
-            eval(delay_poly_loop($(map(esc, func_args)...), $(exprs...)))
+        end)
+        quote
+            $name($(map(esc, func_args)...), $(exprs...))
         end
     else
         # make kernel

@@ -51,16 +51,16 @@ function jacobi_poly(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
     end
 end
 
-# function jacobi_poly_rt(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
-#     @poly_loop tile=0 for t = 1:$timesteps-1
-#         for i = 3:$n-2
-#             b[i] = (a[i - 1] + a[i] + a[i + 1])/3
-#         end
-#         for ii = 3:$n-2
-#             a[ii] = b[ii]
-#         end
-#     end
-# end
+function jacobi_poly_rt(A::Array{T,2}, B::Array{T,2}, timesteps, n) where {T}
+    @poly_loop tile=0 for t = 1:$timesteps-1
+        for i = 3:$n-2
+            b[i] = (a[i - 1] + a[i] + a[i + 1])/3
+        end
+        for ii = 3:$n-2
+            a[ii] = b[ii]
+        end
+    end
+end
 
 n = 1024
 A = rand(n)
@@ -71,47 +71,47 @@ basic = @benchmark jacobi_naive(in, B, $t, $n) setup=(in=copy(A); B=zeros(n))
 simple = @benchmark jacobi_simple(in, B, $t, $n) setup=(in=copy(A); B=zeros(n))
 optimized = @benchmark jacobi_optimized(in, B, $t, $n) setup=(in=copy(A); B=zeros(n))
 poly = @benchmark jacobi_poly(in, B, $t, $n) setup=(in=copy(A); B=zeros(n))
-# polyrt = @benchmark jacobi_poly_rt(in, B, $t, $n) setup=(in=copy(A); B=zeros(n))
+polyrt = @benchmark jacobi_poly_rt(in, B, $t, $n) setup=(in=copy(A); B=zeros(n))
 
 @show allocs(basic)
 @show allocs(simple)
 @show allocs(optimized)
 @show allocs(poly)
-# @show allocs(polyrt)
+@show allocs(polyrt)
 @show minimum(basic)
 @show minimum(simple)
 @show minimum(optimized)
 @show minimum(poly)
-# @show minimum(polyrt)
+@show minimum(polyrt)
 
 rbasic = ratio(minimum(basic), minimum(poly))
 rsimple = ratio(minimum(simple), minimum(poly))
 roptimized = ratio(minimum(optimized), minimum(poly))
 
-# rbasicrt = ratio(minimum(basic), minimum(polyrt))
-# rsimplert = ratio(minimum(simple), minimum(polyrt))
-# roptimizedrt = ratio(minimum(optimized), minimum(polyrt))
+rbasicrt = ratio(minimum(basic), minimum(polyrt))
+rsimplert = ratio(minimum(simple), minimum(polyrt))
+roptimizedrt = ratio(minimum(optimized), minimum(polyrt))
 
 @show rbasic
 @show rsimple
 @show roptimized
 
-# @show rbasicrt
-# @show rsimplert
-# @show roptimizedrt
+@show rbasicrt
+@show rsimplert
+@show roptimizedrt
 
 jbasic = judge(minimum(poly), minimum(basic))
 jsimple = judge(minimum(poly), minimum(simple))
 joptimized = judge(minimum(poly), minimum(optimized))
 
-# jbasicrt = judge(minimum(polyrt), minimum(basic))
-# jsimplert = judge(minimum(polyrt), minimum(simple))
-# joptimizedrt = judge(minimum(polyrt), minimum(optimized))
+jbasicrt = judge(minimum(polyrt), minimum(basic))
+jsimplert = judge(minimum(polyrt), minimum(simple))
+joptimizedrt = judge(minimum(polyrt), minimum(optimized))
 
 @show jbasic
 @show jsimple
 @show joptimized
 
-# @show jbasicrt
-# @show jsimplert
-# @show joptimizedrt
+@show jbasicrt
+@show jsimplert
+@show joptimizedrt
