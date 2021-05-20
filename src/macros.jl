@@ -151,9 +151,10 @@ end
 
 
 """
-Used to allow for code generation and restructuring of a for loop. May reorder some instructions (including loop orderings) and vectorize code. Only the outermost loop should use the macro. The other loops will be handled by the outermost macro
+Runs a Polyhedral model on the input for loop. May reorder instructions (including loop orderings) and vectorize code. Only the outermost loop should use the macro. By default, will also tile code. See below for more details.
 
-Example:
+# Example
+```jldoctest
 @poly_loop for i = 1:n
     for j = 1:m
         for k = 1:r
@@ -162,79 +163,167 @@ Example:
         out[i, j] *= 2
     end
 end
-(constructs a matrix multiplication and double)
+```
+(runs a matrix multiplication and double)
 
-Notes:
+!!! note "Loop Types"
+    `@poly_loop` requires a normal for loop (i.e `i = lowerbound:upperbound` or `i = lowerbound:step:upperbound`)
 
-@poly_loop requires a normal for loop (i.e i = lowerbound:upperbound or i = lowerbound:step:upperbound)
+## Tiling
+Loops will be automatically tiled based on l1 cache sizes unless `tile=0` is set.
+### Example No Tiling:
+```jldoctest
+@poly_loop tile=0 for i=1:n
+    arr[i] = 1.0
+end
+```
+Tiling is usually faster, but in cases where the loop bounds are small it will just introduce more loop overhead. Unless `tile=0` is set, the outermost band (grouping of permutable loops) will be tiled.
 
-Tiling:
-    Loops will be automatically tiled based on l1 cache sizes unless tile=0 is set.
-        Ex:
-        @poly_loop tile=0 for i=1:n ...
-    Tiling is usually faster, but in cases where the loop bounds are small it will just introduce more loop overhead. Unless tile=0 is set, the outermost band (grouping of permutable loops) will be tiled.
-    Warning: some non-uniform access patterns can result in invalid tiling. This is a known bug that is pretty rare.
+!!! warning "Invalid Tiling"
+    Some non-uniform access patterns can result in invalid tiling. This is pretty rare. If this occurs, code will likely error during compilation.
 
-Threading
-    To enable multithreading of the outermost loop, pass thread=true:
-        Ex:
-        @poly_loop thread=true for i=1:n...
-    Disabled by default. Note that julia must be run with --threads=auto (or a number) to enable threading at all
+## Threading
+To enable multithreading of the outermost loop, pass thread=true (disabled by default):
+### Example:
+```jldoctest
+@poly_loop thread=true for i=1:n
+    arr[i] = 1.0
+end
+```
 
-Loop bounds:
-    Loop bounds must NOT be function calls (such as size), since ISL cannot evaluate them. One easy workaround is something like:
-        n = size(out, 1)
-        @poly_loop for i = 1:n ...
+!!! note "Threading Condition"
+    Julia must be run with `julia --threads=auto` (or a number of threads instead of `auto`) to enable threading at all.
 
-Debugging:
-    Debugging and verbosity options (see run_polyhedral_model for details) can be passed as:
-        @poly_loop debug=true verbose=2 for ...
+## Debugging
+Debugging and verbosity options (see run_polyhedral_model for details) can be passed like:
+```jldoctest
+julia> @poly_loop debug=true verbose=2 for i=1:4:n-1
+    arr[i] *= arr[i + 1]
+end
+```
+This will print out the following information, depending on the verbosity level set:
+- 0: no printing (unless `debug=true`, where ISL errors are printed)
+- 1: final Julia expression is printed
+- 2: initial C code, loop orderings, new schedule, final C code, and final Julia expression printed
+- 3: all of 2 plus domain, access relations, dependence relations, original schedule, and new schedule constraints printed
 
-Functions:
-    Since dependencies are inferred from accesses, function calls are currently NOT supported.
-        If a function modifies any inputs, then there is no way to know which inputs are modified or how those inputs are modified. If a function returns an output such as a matrix, the write to each individual index of the matrix (for example A[i, j]) cannot be inferrred by ISL. In addition, @inbounds is not neccessary as the aggresive transformation will add @inbounds automatically.
-        The only exceptions are the following (which can be used in loop bounds and in instructions):
-            min():
-                @poly_loop for i=1:min(n, m) ...
-            max():
-                @poly_loop for i=1:max(n, m) ...
-            floor() -> DO NOT cast to Int() (will be added later):
-                @poly_loop for i=1:floor(n/2) ...
+## Functions
 
-Loop names:
-    All loop iterators must have unique names, even if in different scopes. This is so an original schedule can be extracted from the code.
+!!! warning "Functions"
+    Function calls are not currently supported in most cases
 
-Interpolation:
-    ISL does not work with non-numerical striding. So, this macro supports interpolating the values into the function so that ISL has access to the numerical values (and non-numerical strides MUST be interpolated). This delays the analysis to runtime, so it is advised that interpolated values are typically constant so that compilation does not occur over and over
-    Ex:
-        @poly_loop for i=1:\$c:n
-            arr[i] = 1
-        end
-    In addition, any constants can be interpolated, and sometimes this may improve the performance of ISL. Numerical bounds can help with tiling and inference on spaces. However, it is important that interpolated values are actually constants, or very rarely change, so that this delayed compilation does not occur regularly during runtime.
+If a function modifies any inputs, then there is no way to know which inputs are modified or how those inputs are modified. If a function returns an output such as a matrix, the write to each individual index of the matrix (for example `A[i, j]`) cannot be inferrred by ISL. In addition, `@inbounds` is not neccessary (or allowed) as the aggresive transformation will add `@inbounds` automatically.
 
-Loop steps:
-    Steps in loop domains must be interpolated. See above for more info.
+### Loop Bounds
+This also applies to loop bounds. One easy workaround is something like:
+```jldoctest
+juila> n = size(out, 1)
+julia> @poly_loop for i = 1:n
+    out[i] += 1.0
+end
+```
 
-Indexing:
+### Exceptions
+The only exceptions are the following functions (which can be used in loop bounds and in instructions):
+`min()`:
+```jldoctest
+@poly_loop for i=1:min(n, m)
+    arr[i, i] = 1.0
+end
+```
+`max()`:
+```jldoctest
+@poly_loop for i=1:max(n, m)
+    arr[i, i] -= 1.0
+end
+```
+`floor()` -> DO NOT cast to `Int()` (will be added later):
+```jldoctest
+@poly_loop for i=1:floor(n/2)
+    arr[i] += 1.0
+end
+```
+
+!!! note "Loop Names"
+    All loop iterators must have unique symbols, even if in different scopes. This is so an original schedule can be extracted from the code.
+
+## Example
+```jldoctest
+@poly_loop for i=1:n
+    for j=1:floor(n/2)
+        arr[i, j] += 1.0
+    end
+    for jj=floor(n/2):n
+        arr[i, j] *= 2.0
+    end
+end
+```
+
+## Interpolation
+
+!!! warning "Striding"
+    ISL does not work with non-numerical striding, i.e. `for i=1:TILE:n`.
+
+As a workaround, this macro supports interpolating the values into the function so that ISL has access to the numerical values (and non-numerical strides MUST be interpolated). This delays the analysis to runtime, so it is advised that interpolated values are typically constant so that compilation does not occur over and over.
+
+### Examples:
+```jldoctest
+@poly_loop for i=1:\$c:n
+    arr[i] = 1
+end
+```
+```jldoctest
+@poly_loop for i=1:\$c:\$n
+    arr[i] = 1
+end
+```
+In addition, any constants can be interpolated, and sometimes this may improve the performance of ISL. Numerical bounds can help with tiling and inference on spaces. However, it is important that interpolated values are actually constants, or very rarely change, so that this delayed compilation does not occur regularly during runtime.
+
+!!! note "Indexing"
     All array indices must be in terms of loop bounds or constants, not of variables.
-        Ex:
-            c = i + j
-            A[c]
-        Must become
-            A[i + j]
 
-    Multilpicative indexing (i.e. A[i*t, j]) is not supported. If needed, stride over the iterator.
-        Ex:
-            @poly_loop for t=1:NUM_TILES
-                A[TILE_SIZE*t] = 1
-            end
-        Would need to become this:
-            @poly_loop for t=1:\$TILE_SIZE:NUM_TILES
-                A[t] = 1
-            end
+### Example:
+```jldoctest
+julia> c = i + j
+julia> A[c]
+```
+Must become
+```jldoctest
+julia> A[i + j]
+```
 
-If/elseif/else blocks:
+!!! warning "Multiplicative Indexing"
+    Multilpicative indexing (i.e. `A[i*t, j]`) is not supported. If needed, stride over the iterator.
+
+#### Example:
+```jldoctest
+NUM_TILES = Int(N/TILE_SIZE)
+@poly_loop for t=1:NUM_TILES
+    A[TILE_SIZE*t] = 1
+end
+```
+Would need to become this:
+```jldoctest
+@poly_loop for t=1:\$TILE_SIZE:N
+    A[t] = 1
+end
+```
+
+## If/elseif/else blocks:
+
+!!! note "If Block Conditions"
     If blocks must contain conditions on the loop iterators and constants only (not on any elements of an array, for example)
+
+### Example:
+```jldoctest
+@poly_loop for i=1:n
+    if i%2 == 0
+        A[i] = 1
+    else
+        A[i] = 2
+    end
+end
+```
 
 """
 macro poly_loop(ex0...)
