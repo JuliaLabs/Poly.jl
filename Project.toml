@@ -16,6 +16,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 [compat]
 AbstractTrees = "0.3"
 BenchmarkTools = "0.7"
+Hwloc = "2.0"
 MacroTools = "0.5"
 StaticArrays = "1.0"
 julia = "1"
