@@ -17,6 +17,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 AbstractTrees = "0.3"
 BenchmarkTools = "0.7"
 MacroTools = "0.5"
+SIMD = "3.3"
 StaticArrays = "1.0"
 julia = "1"
 
