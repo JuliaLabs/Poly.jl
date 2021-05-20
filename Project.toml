@@ -19,7 +19,7 @@ AbstractTrees = "0.3"
 BenchmarkTools = "0.7"
 Hwloc = "2.0"
 MacroTools = "0.5"
-SIMD = "2.8+"
+SIMD = "2.8, 3"
 StaticArrays = "1.0"
 julia = "1"
 
