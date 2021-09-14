@@ -4,7 +4,7 @@
 [![Coverage](https://codecov.io/gh/mjulian31/Poly.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/mjulian31/Poly.jl)
 [![Documentation][docs-img]][docs-url]
 
-[docs-img]: https://img.shields.io/badge/docs-stable-blue.svg
+[docs-img]: https://img.shields.io/badge/docs-dev-blue.svg
 [docs-url]: http://julia.mit.edu/Poly.jl/dev/
 
 ## Code Generation
