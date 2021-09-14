@@ -2,7 +2,10 @@
 
 [![Build Status](https://github.com/mjulian31/Poly.jl/workflows/CI/badge.svg)](https://github.com/mjulian31/Poly.jl/actions)
 [![Coverage](https://codecov.io/gh/mjulian31/Poly.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/mjulian31/Poly.jl)
-[![Documentation]][http://julia.mit.edu/Poly.jl/dev/]
+[![Documentation][docs-img]][docs-url]
+
+[docs-img]: https://img.shields.io/badge/docs-stable-blue.svg
+[docs-url]: http://julia.mit.edu/Poly.jl/dev/
 
 ## Code Generation
 Poly can reorder loops, change iteration spaces, reorder instructions, and restructure code. The main goal is to allow for vectorization and efficient loop execution
